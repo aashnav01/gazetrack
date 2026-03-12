@@ -1,0 +1,2936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>GazeTrack — ASD Eye Tracking</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --ink:#0b0d11;
+  --ink2:#13151c;
+  --ink3:#1b1e28;
+  --border:#252836;
+  --accent:#00e5b0;
+  --accent2:#00b88a;
+  --warn:#ff5c3a;
+  --gold:#f0c040;
+  --text:#dde2ef;
+  --muted:#5a6282;
+  --mono:'DM Mono',monospace;
+  --sans:'Bricolage Grotesque',sans-serif;
+}
+
+html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);font-family:var(--sans)}
+
+/* ════════════════════════════════════════
+   SCREEN SYSTEM
+════════════════════════════════════════ */
+.screen{
+  position:fixed;inset:0;
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+.screen.active{display:flex}
+
+/* ════════════════════════════════════════
+   SCREEN 1 — INTAKE FORM
+════════════════════════════════════════ */
+#s-intake{
+  background:var(--ink);
+  overflow-y:auto;
+  padding:40px 20px;
+  align-items:stretch;
+  justify-content:flex-start;
+}
+
+.intake-wrap{
+  max-width:560px;
+  width:100%;
+  margin:0 auto;
+  display:flex;
+  flex-direction:column;
+  gap:0;
+}
+
+.intake-header{
+  padding:40px 0 36px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:36px;
+}
+.intake-logo{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:20px;
+}
+.logo-dot{
+  width:36px;height:36px;
+  border-radius:10px;
+  background:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;
+  flex-shrink:0;
+}
+.logo-name{
+  font-size:20px;
+  font-weight:800;
+  letter-spacing:-.3px;
+}
+.logo-name span{color:var(--accent);}
+.intake-title{
+  font-size:clamp(28px,5vw,38px);
+  font-weight:800;
+  line-height:1.15;
+  color:#fff;
+  margin-bottom:10px;
+}
+.intake-sub{
+  font-size:14px;
+  color:var(--muted);
+  line-height:1.6;
+}
+
+/* Camera preview card */
+.cam-card{
+  background:var(--ink2);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  margin-bottom:28px;
+}
+.cam-preview-wrap{
+  position:relative;
+  aspect-ratio:4/3;
+  background:#000;
+  overflow:hidden;
+}
+#cam-preview{
+  width:100%;height:100%;
+  object-fit:cover;
+  transform:scaleX(-1);
+  display:block;
+}
+#cam-canvas{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  pointer-events:none;
+}
+.cam-badge{
+  position:absolute;top:12px;left:12px;
+  background:rgba(0,0,0,.7);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:20px;
+  padding:5px 12px;
+  font-family:var(--mono);
+  font-size:11px;
+  color:rgba(255,255,255,.7);
+  display:flex;align-items:center;gap:6px;
+}
+.cam-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--warn);}
+.cam-badge-dot.ok{background:var(--accent);}
+.cam-info{
+  padding:14px 18px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  border-top:1px solid var(--border);
+}
+.cam-quality{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  color:var(--muted);
+}
+.quality-bar{
+  height:5px;width:80px;
+  background:var(--border);
+  border-radius:3px;
+  overflow:hidden;
+}
+.quality-fill{
+  height:100%;
+  background:var(--accent);
+  border-radius:3px;
+  width:0%;
+  transition:width .3s;
+}
+.cam-checklist{
+  display:flex;gap:8px;
+}
+.chk{
+  font-size:11px;
+  padding:3px 9px;
+  border-radius:20px;
+  background:rgba(255,92,58,.12);
+  color:var(--warn);
+  border:1px solid rgba(255,92,58,.2);
+  font-family:var(--mono);
+  transition:all .2s;
+}
+.chk.ok{
+  background:rgba(0,229,176,.1);
+  color:var(--accent);
+  border-color:rgba(0,229,176,.2);
+}
+
+/* Form */
+.form-section{
+  margin-bottom:28px;
+}
+.section-label{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin-bottom:14px;
+  font-family:var(--mono);
+}
+.field{margin-bottom:16px;}
+.field label{
+  display:block;
+  font-size:13px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:7px;
+}
+.field label .req{color:var(--accent);margin-left:2px;}
+
+.input-wrap{position:relative;}
+.input-wrap input,
+.input-wrap select{
+  width:100%;
+  background:var(--ink2);
+  border:1.5px solid var(--border);
+  border-radius:10px;
+  padding:12px 16px;
+  font-size:15px;
+  font-family:var(--sans);
+  color:var(--text);
+  outline:none;
+  transition:border-color .15s;
+  appearance:none;
+}
+.input-wrap input::placeholder{color:var(--muted);}
+.input-wrap input:focus,
+.input-wrap select:focus{border-color:var(--accent);}
+.input-wrap select{
+  padding-right:40px;
+  cursor:pointer;
+}
+.select-arrow{
+  position:absolute;right:14px;top:50%;
+  transform:translateY(-50%);
+  pointer-events:none;
+  color:var(--muted);
+  font-size:12px;
+}
+
+/* Radio group */
+.radio-group{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.radio-btn{
+  position:relative;
+  cursor:pointer;
+}
+.radio-btn input{
+  position:absolute;opacity:0;width:0;height:0;
+}
+.radio-face{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  padding:14px 10px;
+  background:var(--ink2);
+  border:1.5px solid var(--border);
+  border-radius:10px;
+  transition:all .15s;
+}
+.radio-face .emoji{font-size:22px;}
+.radio-face .label{font-size:13px;font-weight:600;}
+.radio-face .sub{font-size:11px;color:var(--muted);font-family:var(--mono);}
+.radio-btn input:checked + .radio-face{
+  border-color:var(--accent);
+  background:rgba(0,229,176,.07);
+}
+.radio-btn input:checked + .radio-face .label{color:var(--accent);}
+
+/* Notes textarea */
+.notes-area{
+  width:100%;
+  background:var(--ink2);
+  border:1.5px solid var(--border);
+  border-radius:10px;
+  padding:12px 16px;
+  font-size:14px;
+  font-family:var(--sans);
+  color:var(--text);
+  outline:none;
+  resize:vertical;
+  min-height:80px;
+  transition:border-color .15s;
+}
+.notes-area::placeholder{color:var(--muted);}
+.notes-area:focus{border-color:var(--accent);}
+
+/* Video section */
+.video-drop{
+  border:1.5px dashed var(--border);
+  border-radius:10px;
+  padding:20px;
+  text-align:center;
+  cursor:pointer;
+  transition:all .2s;
+  background:var(--ink2);
+}
+.video-drop:hover{border-color:var(--accent);background:rgba(0,229,176,.04);}
+.video-drop .icon{font-size:28px;margin-bottom:8px;}
+.video-drop .hint{font-size:13px;color:var(--muted);}
+.video-drop .chosen{font-size:13px;color:var(--accent);font-family:var(--mono);}
+#video-input{display:none;}
+
+/* Start button */
+.start-btn{
+  width:100%;
+  padding:18px;
+  border-radius:12px;
+  border:none;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#000;
+  font-weight:800;
+  font-size:17px;
+  font-family:var(--sans);
+  cursor:pointer;
+  box-shadow:0 6px 28px rgba(0,229,176,.3);
+  transition:transform .15s,box-shadow .15s,opacity .15s;
+  letter-spacing:-.2px;
+  margin-top:8px;
+}
+.start-btn:hover:not(:disabled){
+  transform:translateY(-1px);
+  box-shadow:0 10px 36px rgba(0,229,176,.4);
+}
+.start-btn:disabled{opacity:.45;cursor:not-allowed;}
+.start-btn .arrow{display:inline-block;margin-left:6px;transition:transform .15s;}
+.start-btn:hover:not(:disabled) .arrow{transform:translateX(4px);}
+
+.disclaimer{
+  font-size:11px;
+  color:var(--muted);
+  text-align:center;
+  line-height:1.6;
+  margin-top:16px;
+  padding-bottom:40px;
+}
+
+/* ════════════════════════════════════════
+   SCREEN 2 — LOADING MEDIAPIPE
+════════════════════════════════════════ */
+#s-loading{
+  background:var(--ink);
+  gap:20px;
+}
+.load-ring{
+  width:56px;height:56px;
+  border-radius:50%;
+  border:3px solid var(--border);
+  border-top-color:var(--accent);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-msg{font-size:14px;color:var(--muted);font-family:var(--mono);}
+.load-title{font-size:22px;font-weight:700;color:#fff;}
+
+/* ════════════════════════════════════════
+   SCREEN 3 — CALIBRATION
+════════════════════════════════════════ */
+#s-calib{background:#0e1018;}
+
+/* Validation overlay — shown after calibration, before stimulus */
+#val-overlay{
+  display:none;
+  position:fixed;inset:0;
+  background:#0b0d14;
+  z-index:200;
+}
+#val-canvas{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  display:block;
+}
+#val-msg{
+  position:fixed;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  text-align:center;
+  pointer-events:none;
+}
+#val-msg h3{font-size:22px;font-weight:800;color:#fff;margin-bottom:8px;}
+#val-msg p{font-size:14px;color:var(--muted);}
+#calib-canvas{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  display:block;
+}
+#calib-overlay{
+  position:fixed;inset:0;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:20px;
+  z-index:10;
+  background:rgba(10,12,16,.88);
+  backdrop-filter:blur(6px);
+}
+.calib-card{
+  background:var(--ink2);
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:40px 48px;
+  max-width:440px;
+  text-align:center;
+  display:flex;flex-direction:column;gap:18px;
+}
+.calib-card h2{font-size:26px;font-weight:800;color:#fff;}
+.calib-card p{font-size:14px;color:var(--muted);line-height:1.7;}
+.calib-start-btn{
+  padding:15px 40px;
+  border-radius:50px;
+  border:none;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#000;font-weight:800;font-size:16px;
+  font-family:var(--sans);cursor:pointer;
+  box-shadow:0 4px 20px rgba(0,229,176,.35);
+  transition:transform .15s;
+}
+.calib-start-btn:hover{transform:scale(1.04);}
+
+/* ════════════════════════════════════════
+   SCREEN 4 — STIMULUS + HUD
+════════════════════════════════════════ */
+#s-stimulus{
+  background:#000;
+  align-items:stretch;
+  justify-content:stretch;
+}
+#stim-video{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  object-fit:contain;
+  z-index:1;
+  background:#000;
+}
+/* Transparent canvas over video for gaze dot */
+#gaze-canvas{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  pointer-events:none;
+  z-index:2;
+  background:transparent;
+}
+/* HUD */
+#hud{
+  position:fixed;top:0;left:0;right:0;
+  height:48px;
+  background:rgba(11,13,17,.92);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  justify-content:space-between;
+  padding:0 16px;
+  z-index:100;
+}
+.hud-l{display:flex;align-items:center;gap:14px;font-size:12px;}
+.hud-chip{display:flex;align-items:center;gap:5px;color:var(--muted);}
+.hud-chip b{color:var(--text);font-weight:700;}
+.rec-pulse{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--warn);
+  animation:blink 1.3s infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.end-btn{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 14px;border-radius:7px;
+  background:rgba(255,92,58,.1);
+  border:1px solid rgba(255,92,58,.25);
+  color:var(--warn);font-size:12px;font-weight:700;
+  cursor:pointer;font-family:var(--sans);
+  transition:background .15s;
+}
+.end-btn:hover{background:rgba(255,92,58,.2);}
+
+/* Stats panel */
+#stats{
+  position:fixed;top:48px;right:0;
+  width:170px;
+  background:rgba(11,13,17,.92);
+  border-left:1px solid var(--border);
+  padding:14px 12px;
+  z-index:90;
+  font-size:12px;
+}
+.sr{
+  display:flex;justify-content:space-between;
+  padding:6px 0;border-bottom:1px solid var(--border);
+}
+.sr:last-child{border:none;}
+.sl{color:var(--muted);}
+.sv{font-weight:700;font-family:var(--mono);}
+.ok{color:var(--accent);}
+.bad{color:var(--warn);}
+
+/* No video fallback */
+#no-video{
+  position:fixed;inset:0;
+  display:none;
+  flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:16px;
+  background:#000;
+  z-index:5;
+  text-align:center;
+  padding:40px;
+}
+#no-video .big{font-size:52px;}
+#no-video p{color:var(--muted);font-size:14px;}
+.pick-btn{
+  padding:12px 28px;border-radius:10px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#000;font-weight:800;font-size:14px;
+  cursor:pointer;border:none;font-family:var(--sans);
+}
+#sound-btn{
+  position:fixed;bottom:70px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.8);border:1px solid rgba(255,255,255,.15);
+  color:#fff;border-radius:25px;padding:11px 24px;
+  font-family:var(--sans);font-size:14px;font-weight:700;
+  cursor:pointer;z-index:10;display:none;
+  animation:fadeUp .4s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}}
+
+/* ════════════════════════════════════════
+   SCREEN 5 — DONE
+════════════════════════════════════════ */
+#s-done{
+  background:var(--ink);
+  gap:20px;
+  padding:40px;
+  text-align:center;
+}
+.done-icon{font-size:72px;animation:pop .5s cubic-bezier(.17,.67,.26,1.4) both;}
+@keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+#s-done h2{font-size:30px;font-weight:800;color:#fff;}
+.done-stats{
+  display:flex;gap:16px;
+  margin:8px 0;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+.done-stat{
+  background:var(--ink2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:14px 22px;
+  text-align:center;
+  min-width:100px;
+}
+.done-stat .n{font-size:24px;font-weight:800;color:var(--accent);font-family:var(--mono);}
+.done-stat .l{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono);}
+.done-actions{display:flex;gap:12px;margin-top:8px;}
+.btn-dl{
+  padding:13px 30px;border-radius:12px;border:none;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#000;font-weight:800;font-size:14px;
+  font-family:var(--sans);cursor:pointer;
+}
+.btn-restart{
+  padding:13px 30px;border-radius:12px;
+  background:var(--ink2);border:1px solid var(--border);
+  color:var(--text);font-weight:700;font-size:14px;
+  font-family:var(--sans);cursor:pointer;
+}
+
+/* ════════════════════════════════════════
+   DEBUG PANEL (press D)
+════════════════════════════════════════ */
+#debug-panel{
+  display:none;
+  position:fixed;bottom:60px;left:12px;
+  background:rgba(0,0,0,.9);
+  border:1px solid var(--accent);
+  border-radius:10px;
+  padding:12px 16px;
+  font-family:var(--mono);
+  font-size:11px;
+  color:#00ff88;
+  line-height:2;
+  z-index:9999;
+  min-width:280px;
+}
+#debug-panel .dbg-title{color:var(--accent);font-weight:600;margin-bottom:4px;}
+
+/* Hidden webcam */
+#webcam{position:fixed;width:1px;height:1px;opacity:0;top:0;left:0;}
+
+/* ════════════════════════════════════════
+   SCREEN 1.5 — PRE-FLIGHT CHECK
+════════════════════════════════════════ */
+#s-preflight{
+  background:var(--ink);
+  overflow-y:auto;
+  padding:40px 20px;
+  align-items:stretch;
+  justify-content:flex-start;
+}
+.pf-wrap{
+  max-width:580px;
+  width:100%;
+  margin:0 auto;
+  display:flex;
+  flex-direction:column;
+  gap:24px;
+  padding:40px 0;
+}
+.pf-header{
+  text-align:center;
+  padding-bottom:24px;
+  border-bottom:1px solid var(--border);
+}
+.pf-icon{font-size:48px;margin-bottom:12px;}
+.pf-title{font-size:clamp(24px,4vw,32px);font-weight:800;color:#fff;margin-bottom:8px;}
+.pf-sub{font-size:14px;color:var(--muted);line-height:1.6;}
+
+/* Live camera strip */
+.pf-cam-strip{
+  position:relative;
+  border-radius:16px;
+  overflow:hidden;
+  background:#000;
+  aspect-ratio:4/3;
+  border:1px solid var(--border);
+}
+#pf-video{
+  width:100%;height:100%;
+  object-fit:cover;
+  transform:scaleX(-1);
+  display:block;
+}
+#pf-canvas{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  pointer-events:none;
+}
+/* Overlay distance guide */
+.pf-dist-guide{
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:38%;
+  aspect-ratio:3/4;
+  border:2px dashed rgba(0,229,176,0.35);
+  border-radius:50% 50% 50% 50% / 60% 60% 40% 40%;
+  pointer-events:none;
+}
+.pf-dist-label{
+  position:absolute;
+  bottom:10px;left:50%;
+  transform:translateX(-50%);
+  font-size:11px;
+  font-family:var(--mono);
+  color:rgba(0,229,176,0.6);
+  background:rgba(0,0,0,0.6);
+  padding:3px 10px;
+  border-radius:20px;
+  white-space:nowrap;
+}
+
+/* Checklist grid */
+.pf-checks{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+@media(max-width:480px){.pf-checks{grid-template-columns:1fr;}}
+
+.pf-check{
+  background:var(--ink2);
+  border:1.5px solid var(--border);
+  border-radius:14px;
+  padding:16px 18px;
+  display:flex;
+  align-items:flex-start;
+  gap:14px;
+  transition:border-color .3s, background .3s;
+}
+.pf-check.pass{
+  border-color:rgba(0,229,176,.4);
+  background:rgba(0,229,176,.05);
+}
+.pf-check.fail{
+  border-color:rgba(255,92,58,.4);
+  background:rgba(255,92,58,.05);
+}
+.pf-check.warn{
+  border-color:rgba(240,192,64,.4);
+  background:rgba(240,192,64,.05);
+}
+.pf-check.scanning{
+  border-color:var(--border);
+}
+.pf-check-icon{
+  font-size:22px;
+  flex-shrink:0;
+  margin-top:1px;
+}
+.pf-check-body{flex:1;}
+.pf-check-name{
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+  margin-bottom:3px;
+}
+.pf-check-status{
+  font-size:12px;
+  font-family:var(--mono);
+  color:var(--muted);
+  line-height:1.4;
+}
+.pf-check.pass .pf-check-status{color:var(--accent);}
+.pf-check.fail .pf-check-status{color:var(--warn);}
+.pf-check.warn .pf-check-status{color:var(--gold);}
+
+/* Spinner for scanning state */
+.pf-spin{
+  display:inline-block;
+  width:12px;height:12px;
+  border:2px solid var(--border);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation:spin .7s linear infinite;
+  vertical-align:middle;
+  margin-right:4px;
+}
+
+/* Overall score bar */
+.pf-score-row{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  background:var(--ink2);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:16px 20px;
+}
+.pf-score-label{font-size:13px;color:var(--muted);white-space:nowrap;font-family:var(--mono);}
+.pf-score-bar{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;}
+.pf-score-fill{height:100%;border-radius:4px;background:var(--warn);transition:width .4s, background .4s;width:0%;}
+.pf-score-pct{font-size:14px;font-weight:800;font-family:var(--mono);color:var(--text);white-space:nowrap;}
+
+/* Advice box */
+.pf-advice{
+  background:rgba(255,92,58,.08);
+  border:1px solid rgba(255,92,58,.2);
+  border-radius:12px;
+  padding:14px 18px;
+  font-size:13px;
+  color:#ffb3a3;
+  line-height:1.6;
+  display:none;
+}
+.pf-advice.show{display:block;}
+.pf-advice strong{color:var(--warn);}
+
+/* Proceed button */
+.pf-proceed{
+  width:100%;
+  padding:18px;
+  border-radius:12px;
+  border:none;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#000;
+  font-weight:800;
+  font-size:17px;
+  font-family:var(--sans);
+  cursor:pointer;
+  box-shadow:0 6px 28px rgba(0,229,176,.3);
+  transition:transform .15s,box-shadow .15s,opacity .15s;
+}
+.pf-proceed:hover:not(:disabled){
+  transform:translateY(-1px);
+  box-shadow:0 10px 36px rgba(0,229,176,.4);
+}
+.pf-proceed:disabled{opacity:.4;cursor:not-allowed;}
+.pf-proceed.warn-proceed{
+  background:linear-gradient(135deg,var(--gold),#d4a800);
+}
+.pf-back{
+  width:100%;
+  padding:13px;
+  border-radius:12px;
+  background:transparent;
+  border:1px solid var(--border);
+  color:var(--muted);
+  font-size:14px;
+  font-family:var(--sans);
+  cursor:pointer;
+  font-weight:600;
+  transition:border-color .15s;
+}
+.pf-back:hover{border-color:var(--accent);color:var(--text);}
+</style>
+</head>
+<body>
+
+<video id="webcam" autoplay playsinline muted></video>
+
+<!-- ══════════════════════════════════════
+     SCREEN 1: INTAKE FORM
+══════════════════════════════════════ -->
+<div id="s-intake" class="screen active">
+<div class="intake-wrap">
+
+  <div class="intake-header">
+    <div class="intake-logo">
+      <div class="logo-dot">👁</div>
+      <div class="logo-name">Gaze<span>Track</span></div>
+    </div>
+    <div class="intake-title">New Session Setup</div>
+    <div class="intake-sub">Complete the form below. Camera feed is previewed live to confirm positioning before starting.</div>
+  </div>
+
+  <!-- Camera preview -->
+  <div class="cam-card">
+    <div class="cam-preview-wrap">
+      <video id="cam-preview" autoplay playsinline muted></video>
+      <canvas id="cam-canvas"></canvas>
+      <div class="cam-badge">
+        <div class="cam-badge-dot" id="cam-dot"></div>
+        <span id="cam-status-txt">Initialising…</span>
+      </div>
+    </div>
+    <div class="cam-info">
+      <div class="cam-quality">
+        <span>Quality</span>
+        <div class="quality-bar"><div class="quality-fill" id="q-fill"></div></div>
+        <span id="q-pct" style="font-family:var(--mono);font-size:12px">—</span>
+      </div>
+      <div class="cam-checklist">
+        <div class="chk" id="chk-cam">📷 Cam</div>
+        <div class="chk" id="chk-face">👤 Face</div>
+        <div class="chk" id="chk-iris">👁 Iris</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Child info -->
+  <div class="form-section">
+    <div class="section-label">Child Information</div>
+    <div class="field">
+      <label>Participant ID <span class="req">*</span></label>
+      <div class="input-wrap">
+        <input type="text" id="f-pid" placeholder="e.g. CHILD_042" maxlength="40"/>
+      </div>
+    </div>
+    <div class="field">
+      <label>Age (years)</label>
+      <div class="input-wrap">
+        <input type="number" id="f-age" placeholder="e.g. 4" min="1" max="18"/>
+      </div>
+    </div>
+    <div class="field">
+      <label>Diagnosis Group <span class="req">*</span></label>
+      <div class="radio-group">
+        <label class="radio-btn">
+          <input type="radio" name="group" value="ASD"/>
+          <div class="radio-face">
+            <div class="emoji">🔵</div>
+            <div class="label">ASD</div>
+            <div class="sub">Diagnosed ASD</div>
+          </div>
+        </label>
+        <label class="radio-btn">
+          <input type="radio" name="group" value="TD"/>
+          <div class="radio-face">
+            <div class="emoji">🟢</div>
+            <div class="label">TD</div>
+            <div class="sub">Typically developing</div>
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session details -->
+  <div class="form-section">
+    <div class="section-label">Session Details</div>
+    <div class="field">
+      <label>Clinician / Researcher</label>
+      <div class="input-wrap">
+        <input type="text" id="f-clinician" placeholder="Your name"/>
+      </div>
+    </div>
+    <div class="field">
+      <label>Session Location</label>
+      <div class="input-wrap">
+        <input type="text" id="f-location" placeholder="e.g. Lab Room 2"/>
+      </div>
+    </div>
+    <div class="field">
+      <label>Notes (optional)</label>
+      <textarea class="notes-area" id="f-notes" placeholder="Any relevant observations, e.g. child was tired, wore glasses…"></textarea>
+    </div>
+  </div>
+
+  <!-- Stimulus video -->
+  <div class="form-section">
+    <div class="section-label">Stimulus Video</div>
+    <div class="field">
+      <label>Video File (optional — can load after calibration)</label>
+      <div class="video-drop" id="video-drop">
+        <div class="icon">🎬</div>
+        <div class="hint" id="video-hint">Click to choose .mp4 / .webm / .mov</div>
+        <input type="file" id="video-input" accept="video/*"/>
+      </div>
+    </div>
+  </div>
+
+  <button class="start-btn" id="start-btn" disabled>
+    Begin Session <span class="arrow">→</span>
+  </button>
+  <div class="disclaimer">
+    All data is processed locally. No video or biometric data is uploaded to any server.<br>
+    This tool is for research use only and is not a clinical diagnostic instrument.
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 1.5: PRE-FLIGHT CHECK
+══════════════════════════════════════ -->
+<div id="s-preflight" class="screen">
+<div class="pf-wrap">
+
+  <div class="pf-header">
+    <div class="pf-icon">🛫</div>
+    <div class="pf-title">Pre-Flight Check</div>
+    <div class="pf-sub">Running automatic checks before calibration. Fix any red items for best results.</div>
+  </div>
+
+  <!-- Live camera feed with face guide -->
+  <div class="pf-cam-strip">
+    <video id="pf-video" autoplay playsinline muted></video>
+    <canvas id="pf-canvas"></canvas>
+    <div class="pf-dist-guide"></div>
+    <div class="pf-dist-label">Face should fill this oval</div>
+  </div>
+
+  <!-- 8 auto-checks in 2-col grid -->
+  <div class="pf-checks">
+    <div class="pf-check scanning" id="pfc-cam">
+      <div class="pf-check-icon">📷</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Camera &amp; Resolution</div>
+        <div class="pf-check-status" id="pfc-cam-s"><span class="pf-spin"></span> Checking…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-fps">
+      <div class="pf-check-icon">⚡</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Frame Rate</div>
+        <div class="pf-check-status" id="pfc-fps-s"><span class="pf-spin"></span> Measuring…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-face">
+      <div class="pf-check-icon">👤</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Face Detection</div>
+        <div class="pf-check-status" id="pfc-face-s"><span class="pf-spin"></span> Looking…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-iris">
+      <div class="pf-check-icon">👁</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Iris Detection</div>
+        <div class="pf-check-status" id="pfc-iris-s"><span class="pf-spin"></span> Looking…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-dist">
+      <div class="pf-check-icon">📏</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Child Distance</div>
+        <div class="pf-check-status" id="pfc-dist-s"><span class="pf-spin"></span> Estimating…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-light">
+      <div class="pf-check-icon">💡</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Lighting Quality</div>
+        <div class="pf-check-status" id="pfc-light-s"><span class="pf-spin"></span> Analysing…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-tilt">
+      <div class="pf-check-icon">📐</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Head Tilt / Pose</div>
+        <div class="pf-check-status" id="pfc-tilt-s"><span class="pf-spin"></span> Measuring…</div>
+      </div>
+    </div>
+    <div class="pf-check scanning" id="pfc-noise">
+      <div class="pf-check-icon">🔇</div>
+      <div class="pf-check-body">
+        <div class="pf-check-name">Room Noise</div>
+        <div class="pf-check-status" id="pfc-noise-s"><span class="pf-spin"></span> Listening…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Readiness score bar -->
+  <div class="pf-score-row">
+    <span class="pf-score-label">Readiness</span>
+    <div class="pf-score-bar"><div class="pf-score-fill" id="pf-score-fill"></div></div>
+    <span class="pf-score-pct" id="pf-score-pct">—</span>
+  </div>
+
+  <!-- Fix advice -->
+  <div class="pf-advice" id="pf-advice"></div>
+
+  <button class="pf-proceed" id="pf-proceed" disabled>✅ &nbsp; All Clear — Begin Calibration</button>
+  <button class="pf-back" id="pf-back">← Back to Setup Form</button>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 2: LOADING
+══════════════════════════════════════ -->
+<div id="s-loading" class="screen">
+  <div class="load-ring"></div>
+  <div class="load-title">Loading Eye Tracker</div>
+  <div class="load-msg" id="load-msg">Initialising MediaPipe…</div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 3: CALIBRATION
+══════════════════════════════════════ -->
+<div id="s-calib" class="screen">
+  <canvas id="calib-canvas"></canvas>
+  <div id="calib-overlay">
+    <div class="calib-card" id="calib-card">
+      <h2>🐰 Follow the Bunny!</h2>
+      <p style="color:#fff;font-size:16px;font-weight:700;margin-bottom:4px;">For parents:</p>
+      <p>Sit your child in front of the screen so their face is clearly visible in the camera. Then press start and say:<br><br>
+      <strong style="color:var(--accent);font-size:15px">"Watch the bunny — wherever it goes, follow it with your eyes!"</strong><br><br>
+      The bunny will hop around for about 20 seconds. If your child looks away, the bunny will wait and make a sound until they look back. You don't need to do anything else.</p>
+      <button class="calib-start-btn" id="calib-start-btn">🐰 &nbsp; Start — Follow the Bunny!</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     VALIDATION OVERLAY (shown after calibration)
+══════════════════════════════════════ -->
+<div id="val-overlay">
+  <canvas id="val-canvas"></canvas>
+  <div id="val-msg">
+    <h3>🎯 Quick Check</h3>
+    <p>Look at each dot as it appears</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 4: STIMULUS
+══════════════════════════════════════ -->
+<div id="s-stimulus" class="screen">
+  <video id="stim-video" playsinline muted></video>
+  <canvas id="gaze-canvas"></canvas>
+
+  <div id="no-video">
+    <div class="big">🎬</div>
+    <p>No stimulus video loaded.<br>Choose a file to continue.</p>
+    <label class="pick-btn" for="stim-file-input">📂 Choose Video File</label>
+    <input type="file" id="stim-file-input" accept="video/*" style="display:none"/>
+  </div>
+
+  <button id="sound-btn">🔊 Tap for Sound</button>
+
+  <div id="hud">
+    <div class="hud-l">
+      <div class="hud-chip"><div class="rec-pulse"></div>&nbsp;<b id="h-timer">00:00</b></div>
+      <div class="hud-chip">ID: <b id="h-child">—</b></div>
+      <div class="hud-chip">Group: <b id="h-group">—</b></div>
+      <div class="hud-chip">Face: <b id="h-face" class="bad">—</b></div>
+    </div>
+    <button class="end-btn" id="end-btn">■ End</button>
+  </div>
+
+  <div id="stats">
+    <div class="sr"><span class="sl">Face</span><span class="sv" id="st-face">—</span></div>
+    <div class="sr"><span class="sl">Gaze</span><span class="sv" id="st-gaze">—</span></div>
+    <div class="sr"><span class="sl">Frames</span><span class="sv" id="st-frames">0</span></div>
+    <div class="sr"><span class="sl">Track%</span><span class="sv" id="st-track">—</span></div>
+    <div class="sr"><span class="sl">POR Y std</span><span class="sv" id="st-ystd">—</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     SCREEN 5: DONE
+══════════════════════════════════════ -->
+<div id="s-done" class="screen">
+  <div class="done-icon">🎉</div>
+  <h2>Session Complete!</h2>
+  <div class="done-stats" id="done-stats"></div>
+
+  <!-- Google Drive upload status -->
+  <div id="drive-status" style="
+    margin:4px 0 8px;
+    padding:10px 20px;
+    border-radius:10px;
+    font-size:13px;
+    font-family:var(--mono);
+    background:var(--ink2);
+    border:1px solid var(--border);
+    display:flex;align-items:center;gap:10px;
+    min-width:260px;justify-content:center;
+  ">
+    <span id="drive-icon">☁️</span>
+    <span id="drive-msg">Connecting to Google Drive…</span>
+  </div>
+
+  <div class="done-actions">
+    <button class="btn-dl" id="btn-dl">⬇ Download CSV</button>
+    <button class="btn-restart" id="btn-restart">↺ New Session</button>
+  </div>
+</div>
+
+<!-- Debug panel (press D) -->
+<div id="debug-panel">
+  <div class="dbg-title">▶ FEATURE DEBUG (D to close)</div>
+  <div id="d-vert">vert[2]: —</div>
+  <div id="d-foreY">foreheadY: —</div>
+  <div id="d-irisY">irisYabs: —</div>
+  <div id="d-liX">liX: —</div>
+  <div id="d-pitch-src">source: —</div>
+  <div id="d-py" style="color:#ffcc00">→ pred Y: —</div>
+  <div id="d-px" style="color:#ffcc00">→ pred X: —</div>
+  <div id="d-bias" style="color:#ff9f43">bias: not computed</div>
+</div>
+
+<script type="module">
+console.log('%c GazeTrack v10.1 — pre-flight check + Google Drive upload ', 'background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
+import { FaceLandmarker, FilesetResolver }
+  from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
+
+// ─────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────
+const CALIB_MS      = 20000;  // 20s — gives children enough time at each position
+const CALIB_PAUSE   = 2500;
+const MIN_SAMPLES   = 30;   // 8-coeff linear model: 30 samples is already 3.75x overdetermined
+const GAZE_ALPHA    = 0.18;  // slightly smoother for children
+const RIDGE_ALPHA   = 0.01; // minimal — linear model cannot overfit with 300+ samples
+const LEFT_IRIS     = [468,469,470,471];
+const RIGHT_IRIS    = [473,474,475,476];
+const L_CORNERS     = [33,133];
+const R_CORNERS     = [362,263];
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let phase = 'intake'; // intake|loading|calib-ready|calib-run|validation|stimulus|done
+let faceLandmarker = null;
+let camStream = null;
+let sessionStream = null;
+let gazeModel = null;
+let calibSamples = [];
+// Post-calibration validation + affine correction
+let valPoints   = [];   // 5 screen targets for validation
+let valIdx      = 0;    // current validation dot index
+let valSamples  = [];   // predicted gaze collected at each dot
+let valRaf      = null;
+let valDwellMs  = 1200; // ms to collect at each dot
+let valStart    = 0;
+let affineBias  = {dx:0, dy:0, sx:1, sy:1}; // correction applied to every prediction
+let calibStart = 0, calibAcc = 0, calibPausedAt = null, calibSoundPlayed = false;
+let calibPath = [], calibLastPos = null;
+let calibRaf = null, procRaf = null;
+let recordedFrames = [], totalF = 0, trackedF = 0;
+let sessionStart = 0, timerInt = null, lastGaze = null;
+let csvData = null;
+let gazeTrail = [];
+let calibFacePresent = false;
+let videoBlob = null; // pre-loaded video blob from intake form
+
+// Session meta from form
+let META = { pid:'', age:'', group:'', clinician:'', location:'', notes:'' };
+
+// ─────────────────────────────────────────────
+// DOM
+// ─────────────────────────────────────────────
+const screens = {
+  intake:    document.getElementById('s-intake'),
+  preflight: document.getElementById('s-preflight'),
+  loading:   document.getElementById('s-loading'),
+  calib:     document.getElementById('s-calib'),
+  stimulus:  document.getElementById('s-stimulus'),
+  done:      document.getElementById('s-done'),
+};
+const camPreview   = document.getElementById('cam-preview');
+const camCanvas    = document.getElementById('cam-canvas');
+const camCtx       = camCanvas.getContext('2d');
+const calibCanvas  = document.getElementById('calib-canvas');
+const calibCtx     = calibCanvas.getContext('2d');
+const gazeCanvas   = document.getElementById('gaze-canvas');
+const gazeCtx      = gazeCanvas.getContext('2d');
+const webcam       = document.getElementById('webcam');
+const stimVideo    = document.getElementById('stim-video');
+
+function showScreen(name) {
+  Object.values(screens).forEach(s => s.classList.remove('active'));
+  screens[name].classList.add('active');
+}
+
+// ─────────────────────────────────────────────
+// INTAKE — Camera preview & face detection
+// ─────────────────────────────────────────────
+let previewFl = null;
+let previewRaf = null;
+let camReady = false;
+
+async function initPreviewCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{width:{ideal:640,max:640},height:{ideal:480,max:480},frameRate:{ideal:30,max:30},facingMode:'user'}, audio:false
+    });
+    camPreview.srcObject = stream;
+    camStream = stream;
+    camPreview.play();
+    document.getElementById('cam-dot').classList.add('ok');
+    document.getElementById('cam-status-txt').textContent = 'Camera active';
+    document.getElementById('chk-cam').classList.add('ok');
+    document.getElementById('chk-cam').textContent = '✓ Cam';
+    camReady = true;
+    checkStartBtn();
+
+    // Canvas size is synced per-frame in previewLoop using getBoundingClientRect
+
+    // Load FaceLandmarker in background for preview face detection
+    loadPreviewDetector();
+  } catch(e) {
+    document.getElementById('cam-status-txt').textContent = '✗ Camera error';
+  }
+}
+
+async function loadPreviewDetector() {
+  try {
+    const resolver = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+    );
+    previewFl = await FaceLandmarker.createFromOptions(resolver, {
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate:'GPU'
+      },
+      runningMode:'VIDEO', numFaces:1,
+      outputFaceBlendshapes:false,
+      outputFacialTransformationMatrixes:false,
+      outputIrisLandmarks:true   // ← required for landmarks 468-476 to move with eyes
+    });
+    previewLoop();
+  } catch(e) { /* preview face detect failed silently */ }
+}
+
+let _prevLastRun = 0;
+let lastPreviewTimestamp = -1;  // ← new variable to track timestamps
+
+function previewLoop() {
+  if (phase !== 'intake') return;
+  
+  // Throttle preview to 15fps
+  const now = performance.now();
+  if (now - _prevLastRun < 66) {
+    previewRaf = requestAnimationFrame(previewLoop);
+    return;
+  }
+  _prevLastRun = now;
+
+  if (camPreview.readyState >= 2 && previewFl) {
+    // Sync canvas size
+    const rect = camCanvas.getBoundingClientRect();
+    const dW = Math.round(rect.width) || 640;
+    const dH = Math.round(rect.height) || 480;
+    if (camCanvas.width !== dW || camCanvas.height !== dH) {
+      camCanvas.width = dW;
+      camCanvas.height = dH;
+    }
+
+    // --- FIX: strictly increasing timestamps ---
+    let ts = camPreview.currentTime * 1000; // milliseconds
+    if (ts <= lastPreviewTimestamp) {
+      // If timestamp is not strictly greater, bump it slightly
+      ts = lastPreviewTimestamp + 0.001; // add 1 microsecond
+    }
+    lastPreviewTimestamp = ts;
+    // -------------------------------------------
+
+    try {
+      const res = previewFl.detectForVideo(camPreview, ts);
+      const hasFace = res.faceLandmarks && res.faceLandmarks.length > 0;
+
+      camCtx.clearRect(0, 0, camCanvas.width, camCanvas.height);
+
+      if (hasFace) {
+        const lm = res.faceLandmarks[0];
+        drawPreviewMesh(lm);
+        const hasIris = lm[468] && lm[473];
+        document.getElementById('chk-face').classList.toggle('ok', true);
+        document.getElementById('chk-face').textContent = '✓ Face';
+        document.getElementById('chk-iris').classList.toggle('ok', hasIris);
+        document.getElementById('chk-iris').textContent = hasIris ? '✓ Iris' : '👁 Iris';
+
+        let qPct = 60;
+        if (hasIris) {
+          const lEAR_p = Math.hypot(lm[159].x-lm[145].x, lm[159].y-lm[145].y);
+          const rEAR_p = Math.hypot(lm[386].x-lm[374].x, lm[386].y-lm[374].y);
+          const earPx  = (lEAR_p + rEAR_p) / 2;
+          const iodPx  = Math.hypot(lm[473].x-lm[468].x, lm[473].y-lm[468].y);
+          const earRatio = earPx / (iodPx + 1e-6);
+          qPct = earRatio > 0.08 ? 95 : 75;
+        }
+        document.getElementById('q-fill').style.width = qPct + '%';
+        document.getElementById('q-pct').textContent = qPct + '%';
+      } else {
+        document.getElementById('chk-face').classList.remove('ok');
+        document.getElementById('chk-face').textContent = '👤 Face';
+        document.getElementById('chk-iris').classList.remove('ok');
+        document.getElementById('chk-iris').textContent = '👁 Iris';
+        document.getElementById('q-fill').style.width = '0%';
+        document.getElementById('q-pct').textContent = '—';
+      }
+    } catch (e) {
+      console.warn('Preview detection error (non‑fatal):', e);
+    }
+  }
+  previewRaf = requestAnimationFrame(previewLoop); // fixed variable name
+}
+
+function drawPreviewMesh(lm) {
+  // MediaPipe landmarks are 0-1 normalized from the RAW video frame (not mirrored).
+  // The video is CSS-mirrored (scaleX(-1)) so the canvas must NOT apply any extra
+  // mirror transform. Instead we flip the X coordinate manually:
+  //   screenX = (1 - lm.x) * canvasWidth
+  // This gives correct alignment with the mirrored video display.
+  const W = camCanvas.width, H = camCanvas.height;
+  const fx = x => (1 - x) * W;  // mirror X to match CSS-flipped video
+  const fy = y => y * H;
+
+  // Eye contours
+  const leftEye  = [33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33];
+  const rightEye = [362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362];
+  const drawContour = (pts, col) => {
+    camCtx.beginPath();
+    pts.forEach((idx,i) => {
+      const p = lm[idx];
+      i===0 ? camCtx.moveTo(fx(p.x), fy(p.y)) : camCtx.lineTo(fx(p.x), fy(p.y));
+    });
+    camCtx.strokeStyle = col;
+    camCtx.lineWidth = 1.5;
+    camCtx.globalAlpha = 0.7;
+    camCtx.stroke();
+    camCtx.globalAlpha = 1;
+  };
+  drawContour(leftEye, '#00e5b0');
+  drawContour(rightEye, '#00e5b0');
+
+  // Iris circles — landmark [0] is the true iris centre; compute radius from edge point
+  [[468,469,470,471],[473,474,475,476]].forEach(pts => {
+    const cLm = lm[pts[0]]; // true iris centre
+    const eLm = lm[pts[1]]; // edge point for radius
+    const cx = fx(cLm.x), cy = fy(cLm.y);
+    const ex = fx(eLm.x), ey = fy(eLm.y);
+    const r  = Math.hypot(ex-cx, ey-cy) + 1;  // radius = centre-to-edge distance
+    camCtx.beginPath();
+    camCtx.arc(cx, cy, r, 0, Math.PI*2);
+    camCtx.strokeStyle = '#00e5b0';
+    camCtx.lineWidth = 2;
+    camCtx.globalAlpha = 0.9;
+    camCtx.stroke();
+    camCtx.globalAlpha = 1;
+    // Centre dot
+    camCtx.beginPath();
+    camCtx.arc(cx, cy, 2, 0, Math.PI*2);
+    camCtx.fillStyle = '#00e5b0';
+    camCtx.fill();
+  });
+}
+
+// Form validation
+function checkStartBtn() {
+  const pidOk   = document.getElementById('f-pid').value.trim().length > 0;
+  const groupOk = document.querySelector('input[name="group"]:checked') !== null;
+  document.getElementById('start-btn').disabled = !(pidOk && groupOk);
+}
+
+document.getElementById('f-pid').addEventListener('input', checkStartBtn);
+document.querySelectorAll('input[name="group"]').forEach(r => r.addEventListener('change', checkStartBtn));
+
+// Video file pre-load in intake
+document.getElementById('video-drop').addEventListener('click', () =>
+  document.getElementById('video-input').click()
+);
+document.getElementById('video-input').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  videoBlob = URL.createObjectURL(f);
+  document.getElementById('video-hint').style.display = 'none';
+  document.getElementById('video-drop').insertAdjacentHTML('beforeend',
+    `<div class="chosen">✓ ${f.name}</div>`);
+});
+
+// Start button → collect form data → pre-flight check
+document.getElementById('start-btn').addEventListener('click', () => {
+  META.pid       = document.getElementById('f-pid').value.trim();
+  META.age       = document.getElementById('f-age').value;
+  META.group     = document.querySelector('input[name="group"]:checked')?.value || '';
+  META.clinician = document.getElementById('f-clinician').value.trim();
+  META.location  = document.getElementById('f-location').value.trim();
+  META.notes     = document.getElementById('f-notes').value.trim();
+
+  // Stop preview loop, stop preview camera
+  cancelAnimationFrame(previewRaf);
+  if (previewFl) previewFl.close?.();
+
+  phase = 'preflight';
+  showScreen('preflight');
+  startPreflightCheck();
+});
+
+// Pre-flight back button
+document.getElementById('pf-back').addEventListener('click', () => {
+  stopPreflightCheck();
+  phase = 'intake';
+  showScreen('intake');
+  initPreviewCamera(); // restart preview camera
+});
+
+// Pre-flight proceed button → go to loading/calibration
+document.getElementById('pf-proceed').addEventListener('click', () => {
+  stopPreflightCheck();
+  phase = 'loading';
+  showScreen('loading');
+  beginSession();
+});
+
+initPreviewCamera();
+
+// ─────────────────────────────────────────────
+// BEGIN SESSION — load full-quality MP detector
+// ─────────────────────────────────────────────
+async function beginSession() {
+  try {
+    document.getElementById('load-msg').textContent = 'Loading face landmark model…';
+    const resolver = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+    );
+    faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate:'GPU'
+      },
+      runningMode:'VIDEO', numFaces:1,
+      outputFaceBlendshapes:false,
+      outputFacialTransformationMatrixes:true,  // for head pitch
+      outputIrisLandmarks:true                  // ← required for iris tracking (468-476)
+    });
+
+    document.getElementById('load-msg').textContent = 'Starting camera…';
+    sessionStream = await navigator.mediaDevices.getUserMedia({
+      video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false
+    });
+    // Stop intake camera stream to free device
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+
+    webcam.srcObject = sessionStream;
+    await new Promise(r => { webcam.onloadedmetadata = () => { webcam.play(); r(); }; });
+
+    // Resize calibration and gaze canvases
+    resizeCanvases();
+    window.addEventListener('resize', resizeCanvases);
+
+    phase = 'calib-ready';
+    showScreen('calib');
+    procRaf = requestAnimationFrame(processingLoop);
+  } catch(err) {
+    console.error(err);
+    document.getElementById('load-msg').textContent = '❌ ' + (err.message || 'Startup error');
+  }
+}
+
+function resizeCanvases() {
+  calibCanvas.width  = gazeCanvas.width  = window.innerWidth;
+  calibCanvas.height = gazeCanvas.height = window.innerHeight;
+}
+
+// ─────────────────────────────────────────────
+// FEATURE EXTRACTION — 7 features with 3D pitch
+// ─────────────────────────────────────────────
+let _diagDone = false;
+function diagFeatures(lm, mat) {
+  if (_diagDone) return; _diagDone = true;
+  const nose = lm[1], fore = lm[10], chin = lm[152];
+  console.group('%c FEATURE DIAGNOSTIC ', 'background:#ff5c3a;color:#fff;font-weight:bold');
+  console.log('nose.z:', nose.z?.toFixed(6));
+  console.log('fore.z:', fore.z?.toFixed(6));
+  console.log('chin.z:', chin.z?.toFixed(6));
+  console.log('pitchZ =', ((nose.z??0) - ((fore.z??0)+(chin.z??0))/2).toFixed(6));
+  if (mat?.data) {
+    const m = mat.data;
+    const deg = Math.asin(Math.max(-1,Math.min(1,-m[6])))*180/Math.PI;
+    console.log('Matrix pitch (°):', deg.toFixed(2), ' ← vary ±20° looking up/down');
+  } else {
+    console.log('No matrix — using z-coord pitch');
+  }
+  console.groupEnd();
+}
+
+function extractFeatures(lm, mat) {
+  const avg = ids => {
+    const s={x:0,y:0,z:0};
+    ids.forEach(i=>{s.x+=lm[i].x;s.y+=lm[i].y;s.z+=(lm[i].z||0);});
+    return {x:s.x/ids.length,y:s.y/ids.length,z:s.z/ids.length};
+  };
+  const li = avg(LEFT_IRIS), ri = avg(RIGHT_IRIS);
+  const lIn = lm[L_CORNERS[0]], lOut = lm[L_CORNERS[1]];
+  const rIn = lm[R_CORNERS[0]], rOut = lm[R_CORNERS[1]];
+  const lW  = Math.hypot(lOut.x-lIn.x, lOut.y-lIn.y) + 1e-6;
+  const rW  = Math.hypot(rOut.x-rIn.x, rOut.y-rIn.y) + 1e-6;
+  const lCx = (lIn.x+lOut.x)/2;
+  const rCx = (rIn.x+rOut.x)/2;
+
+  // Horizontal — average both eyes for robustness
+  const liX = (li.x - lCx) / lW;
+  const riX = (ri.x - rCx) / rW;
+  const avgX = (liX + riX) / 2;  // combined horizontal signal
+
+  // Vertical: matrix pitch (best) or z-coord pitch (fallback)
+  let pitchDeg = 0;
+  if (mat?.data) {
+    const m = mat.data;
+    pitchDeg = Math.asin(Math.max(-1,Math.min(1,-m[6]))) * 180/Math.PI / 30;
+  }
+  const nose = lm[1], fore = lm[10], chin = lm[152];
+  const pitchZ = ((nose.z||0) - ((fore.z||0)+(chin.z||0))/2) * 10;
+  const vertMain = (Math.abs(pitchDeg) > 0.001) ? pitchDeg : pitchZ;
+
+  const foreheadY = fore.y;
+  const faceCY = (fore.y + chin.y)/2;
+  const faceH  = Math.abs(chin.y - fore.y) + 1e-6;
+  const irisY  = ((li.y+ri.y)/2 - faceCY) / faceH;
+
+  // Eye-aspect-ratio: openness of eye (blink / squint detection)
+  // Left eye: vertical landmarks 159(top) 145(bot) / horizontal width lW
+  const lEAR = Math.hypot(lm[159].x-lm[145].x, lm[159].y-lm[145].y) / lW;
+  const rEAR = Math.hypot(lm[386].x-lm[374].x, lm[386].y-lm[374].y) / rW;
+  const ear  = (lEAR + rEAR) / 2;  // avg eye openness — helps reject blinks
+
+  // Face scale: inter-ocular distance normalised to image width
+  // Tells model how close the child is to camera
+  const iod  = Math.hypot(ri.x - li.x, ri.y - li.y);
+
+  return [
+    liX,        // 0 left iris X  in socket    (horiz ✓)
+    riX,        // 1 right iris X in socket    (horiz ✓)
+    vertMain,   // 2 head pitch                (vert ✓✓)
+    foreheadY,  // 3 forehead Y on screen      (vert backup)
+    irisY,      // 4 iris Y rel face centre    (vert small)
+    (li.y+ri.y)/2,  // 5 abs iris Y            (backup)
+    avgX,       // 6 averaged horiz signal     (robustness)
+    ear,        // 7 eye openness              (blink filter)
+    iod,        // 8 inter-ocular distance     (proximity)
+  ];
+}
+
+// ─────────────────────────────────────────────
+// POLYNOMIAL RIDGE REGRESSION
+// ─────────────────────────────────────────────
+function poly(f) {
+  // PURE LINEAR — 1 bias + 7 gaze features = 8 terms only
+  // No squares, no cross-products.
+  // With 300-600 calibration samples this is massively overdetermined → rock-stable.
+  // Polynomial terms add marginal accuracy but cause catastrophic instability
+  // when iris movement range during calibration differs from recording.
+  // This is what professional eye trackers use internally.
+  return [1, ...f.slice(0, 7)];
+}
+function ridgeFit(X,y,alpha=RIDGE_ALPHA) {
+  const n=X[0].length;
+  const XtX=Array.from({length:n},()=>new Array(n).fill(0));
+  const Xty=new Array(n).fill(0);
+  for(let r=0;r<X.length;r++){
+    for(let i=0;i<n;i++){
+      Xty[i]+=X[r][i]*y[r];
+      for(let j=0;j<n;j++) XtX[i][j]+=X[r][i]*X[r][j];
+    }
+  }
+  for(let i=0;i<n;i++) XtX[i][i]+=alpha;
+  const aug=XtX.map((row,i)=>[...row,Xty[i]]);
+  for(let c=0;c<n;c++){
+    let p=c;
+    for(let r=c+1;r<n;r++) if(Math.abs(aug[r][c])>Math.abs(aug[p][c])) p=r;
+    [aug[c],aug[p]]=[aug[p],aug[c]];
+    const pv=aug[c][c];
+    if(Math.abs(pv)<1e-12) continue;
+    for(let j=c;j<=n;j++) aug[c][j]/=pv;
+    for(let r=0;r<n;r++) if(r!==c){const f=aug[r][c];for(let j=c;j<=n;j++) aug[r][j]-=f*aug[c][j];}
+  }
+  return aug.map(r=>r[n]);
+}
+function trainModel(samples) {
+  if(samples.length < MIN_SAMPLES) return null;
+  const X=samples.map(s=>poly(s.feat));
+  return {wx:ridgeFit(X,samples.map(s=>s.sx)), wy:ridgeFit(X,samples.map(s=>s.sy))};
+}
+function predictGaze(feat,model) {
+  if(!model) return null;
+  const pf=poly(feat);
+  const gx=pf.reduce((s,v,i)=>s+v*model.wx[i],0);
+  const gy=pf.reduce((s,v,i)=>s+v*model.wy[i],0);
+  // Apply per-session affine bias correction (computed after validation)
+  const cx = affineBias.sx * gx + affineBias.dx;
+  const cy = affineBias.sy * gy + affineBias.dy;
+  return {x:Math.max(0,Math.min(window.innerWidth,cx)),
+          y:Math.max(0,Math.min(window.innerHeight,cy))};
+}
+
+// ─────────────────────────────────────────────
+// AFFINE BIAS CORRECTION
+// Fits dx, dy (shift) and sx, sy (scale) from
+// 5 predicted vs actual validation dot pairs.
+// Fixes systematic X-left / Y-up bias from
+// imperfect calibration following.
+// ─────────────────────────────────────────────
+function computeAffineCorrection(pairs) {
+  // pairs = [{px, py, tx, ty}]  (predicted, target)
+  // Simple per-axis linear regression: target = s*predicted + d
+  // s = cov(p,t)/var(p),  d = mean(t) - s*mean(p)
+  function linfit(ps, ts) {
+    const n  = ps.length;
+    const mp = ps.reduce((a,b)=>a+b,0)/n;
+    const mt = ts.reduce((a,b)=>a+b,0)/n;
+    let num=0, den=0;
+    for(let i=0;i<n;i++){num+=(ps[i]-mp)*(ts[i]-mt); den+=(ps[i]-mp)**2;}
+    const s = den>1e-6 ? num/den : 1;
+    // Clamp scale to reasonable range [0.3, 3.0] to avoid wild extrapolation
+    const sc = Math.max(0.6, Math.min(1.6, s));  // linear model: corrections should be small
+    const d  = mt - sc*mp;
+    return {s:sc, d};
+  }
+  const px = pairs.map(p=>p.px), tx = pairs.map(p=>p.tx);
+  const py = pairs.map(p=>p.py), ty = pairs.map(p=>p.ty);
+  const fx = linfit(px, tx);
+  const fy = linfit(py, ty);
+  return {sx:fx.s, dx:fx.d, sy:fy.s, dy:fy.d};
+}
+
+// ─────────────────────────────────────────────
+// CALIBRATION PATH — waypoints with Y dwell
+// ─────────────────────────────────────────────
+function buildCalibPath() {
+  const W=window.innerWidth, H=window.innerHeight;
+  // Margins: tight to edges so extreme gaze positions are sampled
+  const mx=W/2, my=H/2;
+  const px=W*.08, py=H*.08;   // 8% inset — close to actual screen edges
+
+  // Waypoints: [x, y, weight]
+  // High weight = longer dwell at that position = more calibration samples
+  // Corners and edges get 3x weight because extremes are hardest to calibrate
+  const wpts=[
+    [mx,      py,      3],  // TOP CENTRE    ← extra Y training
+    [W-px,    py,      3],  // TOP RIGHT
+    [W-px,    my,      2],  // MID RIGHT
+    [W-px,    H-py,    3],  // BOTTOM RIGHT  ← extra Y training
+    [mx,      H-py,    3],  // BOTTOM CENTRE ← extra Y training
+    [px,      H-py,    3],  // BOTTOM LEFT
+    [px,      my,      2],  // MID LEFT
+    [px,      py,      3],  // TOP LEFT
+    [mx,      py,      2],  // TOP CENTRE (revisit)
+    [mx,      my,      2],  // CENTRE
+    [W-px,    my,      1],  // MID RIGHT
+    [mx,      H-py,    2],  // BOTTOM CENTRE (revisit)
+    [px,      my,      1],  // MID LEFT
+    [mx,      py,      2],  // TOP CENTRE (revisit)
+    [mx,      my,      1],  // CENTRE — end stable
+  ];
+
+  const totalW    = wpts.reduce((s,w)=>s+w[2], 0);
+  const totalSteps = 900;  // smooth path for 20s
+  const pts = [];
+
+  for(let wi=0; wi<wpts.length-1; wi++){
+    const [x0,y0,w0] = wpts[wi];
+    const [x1,y1]    = wpts[wi+1];
+    const steps = Math.round((w0/totalW)*totalSteps);
+    for(let s=0; s<steps; s++){
+      const t  = s / Math.max(steps-1, 1);
+      const st = t*t*(3-2*t);  // smoothstep easing
+      pts.push([x0+(x1-x0)*st, y0+(y1-y0)*st]);
+    }
+  }
+  while(pts.length < totalSteps) pts.push(wpts[wpts.length-1].slice(0,2));
+  return pts.slice(0, totalSteps);
+}
+
+// ─────────────────────────────────────────────
+// CALIBRATION ANIMATION
+// ─────────────────────────────────────────────
+const BCOLOURS=[
+  ['#FF6B6B','#FF9E9E'],['#4ECDC4','#7EDDD7'],['#45B7D1','#72CBE0'],
+  ['#96CEB4','#B4DEC9'],['#FFEAA7','#FFF3C4'],['#DDA0DD','#EEC0EE'],['#FF9F43','#FFBE76']
+];
+let bci=0, bct=0;
+const trail=[];
+
+/* ── BUNNY COLOUR PALETTE ── */
+const CAT_COLS = [
+  {body:'#F8D7E3',stripe:'#E8A0B8',belly:'#fff'},   // pink
+  {body:'#D7EAF8',stripe:'#90BDE0',belly:'#fff'},   // blue
+  {body:'#E8D7F8',stripe:'#C090E0',belly:'#fff'},   // lavender
+  {body:'#D7F8E3',stripe:'#80D4A0',belly:'#fff'},   // mint
+  {body:'#F8F0D7',stripe:'#E0C878',belly:'#fff'},   // cream
+  {body:'#F8D7D7',stripe:'#E09090',belly:'#fff'},   // coral
+];
+
+function drawCat(x, y, t, happy) {
+  const ctx = calibCtx;
+  const r   = 36;
+  const bob  = Math.sin(t * 4) * 5;
+  const squish = happy ? 1 : 0.92;         // squish when waiting
+  const cy   = y + bob;
+  const {body, stripe, belly} = CAT_COLS[bci];
+
+  // shadow
+  ctx.save(); ctx.globalAlpha = 0.13;
+  ctx.beginPath(); ctx.ellipse(x, cy + r + 4, r * 0.85, r * 0.22, 0, 0, Math.PI*2);
+  ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
+
+  // ── EARS (tall bunny ears) ──
+  [[-r*0.42, -r*1.1], [r*0.42, -r*1.1]].forEach(([dx]) => {
+    const ex = x + dx;
+    const ey = cy - r;
+    // outer ear
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(dx < 0 ? -0.12 : 0.12);
+    ctx.beginPath();
+    ctx.ellipse(0, -r*0.72, 10, r*0.72, 0, 0, Math.PI*2);
+    ctx.fillStyle = body; ctx.fill();
+    // inner ear (pink)
+    ctx.beginPath();
+    ctx.ellipse(0, -r*0.72, 5, r*0.52, 0, 0, Math.PI*2);
+    ctx.fillStyle = '#ffb3c6'; ctx.fill();
+    ctx.restore();
+  });
+
+  // ── BODY ──
+  ctx.save();
+  ctx.translate(x, cy);
+  ctx.scale(squish, 2 - squish);
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2);
+  ctx.fillStyle = body; ctx.fill();
+  // belly patch
+  ctx.beginPath(); ctx.ellipse(0, r*0.18, r*0.42, r*0.52, 0, 0, Math.PI*2);
+  ctx.fillStyle = belly; ctx.fill();
+  ctx.restore();
+
+  // ── EYES ──
+  const blink = Math.abs(Math.sin(t * 0.65)) > 0.92;
+  [x - r*0.28, x + r*0.28].forEach(ex => {
+    const ey = cy - r*0.12;
+    if (blink) {
+      ctx.beginPath(); ctx.arc(ex, ey, 7, 0, Math.PI);
+      ctx.strokeStyle = stripe; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + 1.5, ey + 1, 5, 0, Math.PI*2);
+      ctx.fillStyle = happy ? '#333' : '#555'; ctx.fill();
+      // shine
+      ctx.beginPath(); ctx.arc(ex + 3.5, ey - 2, 2, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+    }
+  });
+
+  // ── NOSE ──
+  ctx.beginPath();
+  ctx.moveTo(x, cy + r*0.14);
+  ctx.lineTo(x - 5, cy + r*0.22); ctx.lineTo(x + 5, cy + r*0.22);
+  ctx.closePath(); ctx.fillStyle = '#ffb3c6'; ctx.fill();
+
+  // ── MOUTH ──
+  ctx.beginPath();
+  if (happy) {
+    ctx.arc(x - 5, cy + r*0.26, 5, 0, Math.PI*0.8);
+    ctx.strokeStyle = stripe; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x + 5, cy + r*0.26, 5, Math.PI*0.2, Math.PI);
+    ctx.stroke();
+  } else {
+    ctx.arc(x, cy + r*0.42, 7, Math.PI+0.25, Math.PI*2-0.25);
+    ctx.strokeStyle = stripe; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.stroke();
+  }
+
+  // ── FLUFFY TAIL ──
+  ctx.beginPath();
+  ctx.arc(x - r*0.72, cy + r*0.5, 10, 0, Math.PI*2);
+  ctx.fillStyle = belly; ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x - r*0.72, cy + r*0.5, 10, 0, Math.PI*2);
+  ctx.strokeStyle = body; ctx.lineWidth = 2; ctx.stroke();
+
+  // ── sparkle trail ──
+  trail.push({x, y: cy});
+  while(trail.length > 10) trail.shift();
+  trail.forEach((p, i) => {
+    const a = (i / trail.length) * 0.35;
+    const sz = 3 - i * 0.25;
+    if (sz <= 0) return;
+    ctx.beginPath(); ctx.arc(p.x, p.y, sz, 0, Math.PI*2);
+    ctx.fillStyle = stripe + Math.round(a*255).toString(16).padStart(2,'0');
+    ctx.fill();
+  });
+}
+
+function drawBubble(x, y, t) {
+  const W = calibCanvas.width, H = calibCanvas.height;
+  const now = performance.now();
+
+  // Rotate colour palette every 4s
+  if (now - bct > 4000) { bci = (bci+1) % CAT_COLS.length; bct = now; }
+
+  // Dark starfield background
+  calibCtx.fillStyle = '#0b0d14';
+  calibCtx.fillRect(0, 0, W, H);
+
+  // Soft glow under cat
+  const grd = calibCtx.createRadialGradient(x, y, 10, x, y, 80);
+  grd.addColorStop(0, CAT_COLS[bci].body + '33');
+  grd.addColorStop(1, 'transparent');
+  calibCtx.fillStyle = grd;
+  calibCtx.beginPath(); calibCtx.arc(x, y, 80, 0, Math.PI*2); calibCtx.fill();
+
+  // Draw the cat (happy = face is present)
+  drawCat(x, y, t, calibFacePresent);
+
+  // Progress ring
+  const elapsed = performance.now() - calibStart;
+  const pct = Math.min(elapsed / CALIB_MS, 1);
+  const r = 38;
+  calibCtx.beginPath();
+  calibCtx.arc(x, y + Math.sin(t*4)*4, r+14, -Math.PI/2, -Math.PI/2 + Math.PI*2*pct);
+  calibCtx.strokeStyle = '#00e5b0'; calibCtx.lineWidth = 4;
+  calibCtx.lineCap = 'round'; calibCtx.stroke();
+
+  // Sample count label
+  const done = calibSamples.length >= MIN_SAMPLES;
+  calibCtx.fillStyle = done ? '#00e5b0' : 'rgba(255,255,255,0.4)';
+  calibCtx.font = '600 14px "Bricolage Grotesque", sans-serif';
+  calibCtx.textAlign = 'center';
+  calibCtx.fillText(
+    done ? `✓ ${calibSamples.length} samples` : `Watching… ${calibSamples.length}`,
+    W/2, H - 22
+  );
+}
+
+function drawWaitRing(x,y,now) {
+  // Pulsing orange ring + bouncing question marks when face is lost
+  const r = 58 + 10*Math.abs(Math.sin(now/280));
+  calibCtx.save();
+  calibCtx.globalAlpha = 0.5 + 0.4*Math.abs(Math.sin(now/280));
+  calibCtx.beginPath(); calibCtx.arc(x, y, r, 0, Math.PI*2);
+  calibCtx.strokeStyle = '#FFB347'; calibCtx.lineWidth = 5;
+  calibCtx.setLineDash([10, 7]); calibCtx.stroke();
+  calibCtx.restore();
+  calibCtx.setLineDash([]);
+
+  // Bouncing emoji label
+  const bounce = Math.abs(Math.sin(now / 400)) * 8;
+  calibCtx.font = 'bold 20px "Bricolage Grotesque", sans-serif';
+  calibCtx.textAlign = 'center';
+  calibCtx.fillStyle = 'rgba(255,179,71,0.95)';
+  calibCtx.fillText('🐰  Look at me!', x, y + r + 30 - bounce);
+}
+
+function playChime() {
+  // Boing! — played when face is lost and bunny waits
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(520, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ac.currentTime + 0.5);
+    gain.gain.setValueAtTime(0.35, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.55);
+    osc.start(ac.currentTime);
+    osc.stop(ac.currentTime + 0.6);
+  } catch(e) {}
+}
+
+function playMeow() {
+  // Happy boing — played when face returns
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(700, ac.currentTime + 0.1);
+    osc.frequency.exponentialRampToValueAtTime(420, ac.currentTime + 0.28);
+    gain.gain.setValueAtTime(0.28, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.32);
+    osc.start(ac.currentTime);
+    osc.stop(ac.currentTime + 0.35);
+  } catch(e) {}
+}
+
+// Pop sound — played each time bunny hops to a new major waypoint
+let _lastBoingIdx = -1;
+function maybePlayHopSound(idx) {
+  // Only play on first visit to each major waypoint segment (~every 60 steps)
+  const seg = Math.floor(idx / 60);
+  if (seg === _lastBoingIdx) return;
+  _lastBoingIdx = seg;
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    // Two-oscillator boing: thump + spring
+    const osc1 = ac.createOscillator(), g1 = ac.createGain();
+    osc1.connect(g1); g1.connect(ac.destination);
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(200, ac.currentTime);
+    osc1.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.18);
+    g1.gain.setValueAtTime(0.4, ac.currentTime);
+    g1.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.22);
+    osc1.start(ac.currentTime); osc1.stop(ac.currentTime + 0.25);
+
+    const osc2 = ac.createOscillator(), g2 = ac.createGain();
+    osc2.connect(g2); g2.connect(ac.destination);
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(900, ac.currentTime + 0.02);
+    osc2.frequency.exponentialRampToValueAtTime(300, ac.currentTime + 0.3);
+    g2.gain.setValueAtTime(0, ac.currentTime);
+    g2.gain.setValueAtTime(0.22, ac.currentTime + 0.02);
+    g2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.35);
+    osc2.start(ac.currentTime + 0.02); osc2.stop(ac.currentTime + 0.38);
+  } catch(e) {}
+}
+
+function startCalibAnim() {
+  calibAcc=0;calibPausedAt=null;calibLastPos=null;calibSoundPlayed=false;
+  bct=performance.now();calibPath=buildCalibPath();trail.length=0;_lastBoingIdx=-1;
+
+  function frame(now) {
+    if(!calibFacePresent) {
+      if(calibPausedAt===null){calibPausedAt=now;calibSoundPlayed=false;}
+      if(!calibSoundPlayed&&(now-calibPausedAt)>CALIB_PAUSE){playChime();calibSoundPlayed=true;}
+      const pos=calibLastPos||[window.innerWidth/2,window.innerHeight/2];
+      drawBubble(pos[0],pos[1],now/1000);
+      drawWaitRing(pos[0],pos[1],now);
+      calibRaf=requestAnimationFrame(frame);return;
+    }
+    if(calibPausedAt!==null){calibStart=now-calibAcc;calibPausedAt=null;playMeow();}
+    calibAcc=now-calibStart;
+    if(calibAcc>=CALIB_MS){finaliseCalib();return;}
+    const pct=calibAcc/CALIB_MS;
+    const idx=Math.min(Math.floor(pct*(calibPath.length-1)),calibPath.length-1);
+    const pt=calibPath[idx];
+    if(!pt){calibRaf=requestAnimationFrame(frame);return;}
+    calibLastPos=pt;
+    maybePlayHopSound(idx);
+    drawBubble(pt[0],pt[1],now/1000);
+    calibRaf=requestAnimationFrame(frame);
+  }
+  calibStart=performance.now();
+  calibRaf=requestAnimationFrame(frame);
+}
+
+// ─────────────────────────────────────────────
+// VALIDATION — 5-point bias correction
+// ─────────────────────────────────────────────
+function buildValPoints() {
+  const W=window.innerWidth, H=window.innerHeight;
+  const px=W*0.10, py=H*0.10;
+  return [
+    {x:W/2,   y:H/2},    // centre
+    {x:px,    y:py},     // top-left
+    {x:W-px,  y:py},     // top-right
+    {x:W-px,  y:H-py},   // bottom-right
+    {x:px,    y:H-py},   // bottom-left
+  ];
+}
+
+function drawValDot(ctx, x, y, progress, label) {
+  const W=ctx.canvas.width, H=ctx.canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Dark bg
+  ctx.fillStyle='#0b0d14'; ctx.fillRect(0,0,W,H);
+
+  // Instruction text at top
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  ctx.font='600 16px "Bricolage Grotesque",sans-serif';
+  ctx.textAlign='center';
+  ctx.fillText('👁  Look at the dot', W/2, 36);
+
+  // Progress dots row at bottom
+  valPoints.forEach((p,i) => {
+    const bx = W/2 + (i-2)*28;
+    ctx.beginPath(); ctx.arc(bx, H-24, 5, 0, Math.PI*2);
+    ctx.fillStyle = i < valIdx ? '#00e5b0'
+                  : i===valIdx ? '#fff'
+                  : 'rgba(255,255,255,0.2)';
+    ctx.fill();
+  });
+
+  // Outer pulse ring
+  const pulse = 0.5 + 0.5*Math.sin(performance.now()/200);
+  ctx.beginPath(); ctx.arc(x, y, 28 + 8*pulse, 0, Math.PI*2);
+  ctx.strokeStyle=`rgba(0,229,176,${0.3*pulse})`; ctx.lineWidth=3; ctx.stroke();
+
+  // Progress fill ring
+  ctx.beginPath();
+  ctx.arc(x, y, 22, -Math.PI/2, -Math.PI/2 + Math.PI*2*progress);
+  ctx.strokeStyle='#00e5b0'; ctx.lineWidth=5; ctx.lineCap='round'; ctx.stroke();
+
+  // White outer ring
+  ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI*2);
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=5; ctx.stroke();
+
+  // Core dot (white → green as fills)
+  const col = progress > 0.5 ? '#00e5b0' : '#fff';
+  ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI*2);
+  ctx.fillStyle=col; ctx.fill();
+
+  // Centre crosshair
+  ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=1.5;
+  [[-6,0,6,0],[0,-6,0,6]].forEach(([x1,y1,x2,y2])=>{
+    ctx.beginPath(); ctx.moveTo(x+x1,y+y1); ctx.lineTo(x+x2,y+y2); ctx.stroke();
+  });
+}
+
+function startValidation() {
+  phase = 'validation';
+  valPoints = buildValPoints();
+  valIdx = 0; valSamples = [];
+  affineBias = {dx:0, dy:0, sx:1, sy:1}; // reset
+
+  const overlay = document.getElementById('val-overlay');
+  const valCanvas = document.getElementById('val-canvas');
+  overlay.style.display = 'block';
+  valCanvas.width  = window.innerWidth;
+  valCanvas.height = window.innerHeight;
+
+  // Hide instruction text after 600ms
+  setTimeout(()=>{ document.getElementById('val-msg').style.display='none'; }, 600);
+
+  runValDot();
+}
+
+function runValDot() {
+  if(valIdx >= valPoints.length) {
+    finishValidation(); return;
+  }
+  const pt = valPoints[valIdx];
+  const collected = [];   // predicted gaze during this dwell
+  valStart = performance.now();
+  const valCanvas = document.getElementById('val-canvas');
+  const vCtx = valCanvas.getContext('2d');
+
+  function frame() {
+    const elapsed = performance.now() - valStart;
+    const progress = Math.min(elapsed / valDwellMs, 1);
+    drawValDot(vCtx, pt.x, pt.y, progress, valIdx+1);
+
+    // Collect median gaze during second half of dwell (eyes settled)
+    // Throttle to actual webcam fps — skip if same frame
+    if(elapsed > valDwellMs*0.45 && gazeModel) {
+      // Use raw predictGaze without correction yet (affineBias still identity)
+      if(webcam.readyState >= 2 && faceLandmarker && webcam.currentTime !== _lastVideoTime) {
+        _lastVideoTime = webcam.currentTime;
+        const res = faceLandmarker.detectForVideo(webcam, performance.now());
+        if(res.faceLandmarks && res.faceLandmarks.length > 0) {
+          const lm  = res.faceLandmarks[0];
+          const mat = (res.facialTransformationMatrixes?.length > 0)
+            ? res.facialTransformationMatrixes[0] : null;
+          const feat = extractFeatures(lm, mat);
+          const isBlink = feat[7] < 0.06;
+          if(!isBlink) {
+            // Raw prediction (bypass affine — affineBias is identity here)
+            const pf = poly(feat);
+            const rawX = pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0);
+            const rawY = pf.reduce((s,v,i)=>s+v*gazeModel.wy[i],0);
+            collected.push({px:rawX, py:rawY});
+          }
+        }
+      }
+    }
+
+    if(elapsed < valDwellMs) {
+      valRaf = requestAnimationFrame(frame);
+    } else {
+      // Compute median predicted position for this dot
+      if(collected.length >= 3) {
+        const mxs = collected.map(p=>p.px).sort((a,b)=>a-b);
+        const mys = collected.map(p=>p.py).sort((a,b)=>a-b);
+        const mid = Math.floor(mxs.length/2);
+        valSamples.push({
+          px: mxs[mid], py: mys[mid],
+          tx: pt.x,     ty: pt.y
+        });
+      }
+      valIdx++;
+      runValDot();
+    }
+  }
+  valRaf = requestAnimationFrame(frame);
+}
+
+function finishValidation() {
+  cancelAnimationFrame(valRaf);
+  document.getElementById('val-overlay').style.display = 'none';
+
+  if(valSamples.length >= 3) {
+    affineBias = computeAffineCorrection(valSamples);
+    console.log('[GazeTrack] Affine correction computed:',
+      `dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)}`,
+      `sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`);
+
+    // Quality check — if correction is very large, calibration probably failed
+    const badCalib = Math.abs(affineBias.dx) > 300 || affineBias.sx > 1.4 || affineBias.sx < 0.7;
+    if (badCalib) {
+      console.warn('[GazeTrack] Poor calibration quality — prompting retry');
+      affineBias = {dx:0, dy:0, sx:1, sy:1}; // reset to identity
+      calibSamples = [];
+      const card = document.getElementById('calib-card');
+      card.querySelector('h2').textContent = '🐰 Let\'s try that again!';
+      card.querySelector('p').innerHTML =
+        'It looks like your child may have looked away during the bunny game — that\'s totally okay!<br><br>' +
+        '<strong style="color:var(--accent)">Tip:</strong> Sit closer to the screen, make sure the room is bright, and remind your child: <strong style="color:#fff">"Watch the bunny!"</strong><br><br>' +
+        'Press the button below to play again.';
+      document.getElementById('calib-start-btn').textContent = '🐰  Play Again!';
+      document.getElementById('calib-overlay').style.display = 'flex';
+      return;
+    }
+  } else {
+    console.warn('[GazeTrack] Not enough validation samples — using identity correction');
+  }
+
+  phase = 'stimulus';
+  showScreen('stimulus');
+  document.getElementById('h-child').textContent = META.pid;
+  document.getElementById('h-group').textContent = META.group;
+  startRecording();
+}
+
+function finaliseCalib() {
+  cancelAnimationFrame(calibRaf);
+  calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
+  gazeModel=trainModel(calibSamples);
+  if(!gazeModel) {
+    const card=document.getElementById('calib-card');
+    card.querySelector('h2').textContent='⚠️ Calibration incomplete';
+    card.querySelector('p').textContent=
+      `Only ${calibSamples.length} samples collected (need ${MIN_SAMPLES}). Please retry.`;
+    document.getElementById('calib-start-btn').textContent='↺ Retry';
+    document.getElementById('calib-overlay').style.display='flex';
+    calibSamples=[];return;
+  }
+  // Go to validation phase for bias correction
+  startValidation();
+}
+
+// Calibration start button
+document.getElementById('calib-start-btn').addEventListener('click',()=>{
+  document.getElementById('calib-overlay').style.display='none';
+  calibSamples=[];
+  phase='calib-run';
+  startCalibAnim();
+});
+
+// ─────────────────────────────────────────────
+// RECORDING
+// ─────────────────────────────────────────────
+function startRecording() {
+  sessionStart=Date.now();
+  recordedFrames=[];totalF=0;trackedF=0;lastGaze=null;gazeTrail=[];
+
+  timerInt=setInterval(()=>{
+    const s=Math.floor((Date.now()-sessionStart)/1000);
+    document.getElementById('h-timer').textContent=
+      `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  },500);
+
+  // Try stimulus video
+  if(videoBlob) {
+    stimVideo.src=videoBlob;stimVideo.muted=true;
+    stimVideo.play().catch(()=>showNoVideo());
+    stimVideo.onerror=showNoVideo;
+    stimVideo.onended=()=>endSession();
+    document.getElementById('sound-btn').style.display='block';
+  } else {
+    showNoVideo();
+  }
+}
+
+function showNoVideo() {
+  document.getElementById('no-video').style.display='flex';
+  document.getElementById('sound-btn').style.display='none';
+}
+
+document.getElementById('stim-file-input').addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
+  stimVideo.src=URL.createObjectURL(f);stimVideo.muted=true;
+  document.getElementById('no-video').style.display='none';
+  stimVideo.play().catch(()=>{});
+  stimVideo.onended=()=>endSession();
+  document.getElementById('sound-btn').style.display='block';
+});
+
+document.getElementById('sound-btn').addEventListener('click',()=>{
+  stimVideo.muted=false;stimVideo.play().catch(()=>{});
+  document.getElementById('sound-btn').style.display='none';
+});
+
+// ─────────────────────────────────────────────
+// MAIN PROCESSING LOOP (runs all phases)
+// ─────────────────────────────────────────────
+let _lastVideoTime = -1;
+function processingLoop() {
+  if(phase==='done'){return;}
+  // validation uses faceLandmarker directly in runValDot — just keep loop alive
+  if(phase==='validation'){procRaf=requestAnimationFrame(processingLoop);return;}
+  if(webcam.readyState>=2 && faceLandmarker) {
+    // Skip if webcam hasn't produced a new frame yet (saves ~60% of GPU calls)
+    if(webcam.currentTime === _lastVideoTime) {
+      procRaf=requestAnimationFrame(processingLoop); return;
+    }
+    _lastVideoTime = webcam.currentTime;
+    const res=faceLandmarker.detectForVideo(webcam,performance.now());
+    const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
+    const mat=(res.facialTransformationMatrixes&&res.facialTransformationMatrixes.length>0)
+      ? res.facialTransformationMatrixes[0] : null;
+
+    calibFacePresent=hasFace;
+
+    // Debug panel update
+    const dbgPanel=document.getElementById('debug-panel');
+    if(hasFace && dbgPanel.style.display!=='none') {
+      const lm=res.faceLandmarks[0];
+      const f=extractFeatures(lm,mat);
+      document.getElementById('d-vert').textContent=`pitch[2]: ${f[2].toFixed(4)}`;
+      document.getElementById('d-foreY').textContent=`foreheadY[3]: ${f[3].toFixed(4)}`;
+      document.getElementById('d-irisY').textContent=`irisYabs[5]: ${f[5].toFixed(4)}`;
+      document.getElementById('d-liX').textContent=`liX[0]: ${f[0].toFixed(4)}  riX[1]: ${f[1].toFixed(4)}`;
+      document.getElementById('d-pitch-src').textContent=`src:${mat?.data?'matrix':'z-coord'} EAR:${f[7].toFixed(3)} IOD:${f[8].toFixed(3)}`;
+      document.getElementById('d-bias').textContent=`bias dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`;
+      if(gazeModel){
+        const g=predictGaze(f,gazeModel);
+        if(g){
+          document.getElementById('d-py').textContent=`→ pred Y: ${g.y.toFixed(0)}px`;
+          document.getElementById('d-px').textContent=`→ pred X: ${g.x.toFixed(0)}px`;
+        }
+      }
+    }
+
+    if(phase==='stimulus') {
+      document.getElementById('h-face').textContent=hasFace?'Yes':'No';
+      document.getElementById('h-face').className=hasFace?'ok':'bad';
+      document.getElementById('st-face').textContent=hasFace?'Yes':'No';
+      document.getElementById('st-face').className='sv '+(hasFace?'ok':'bad');
+    }
+
+    if(hasFace) {
+      const lm=res.faceLandmarks[0];
+      diagFeatures(lm,mat);
+      const features=extractFeatures(lm,mat);
+      const isBlink = features[7] < 0.06; // skip blink frames
+
+      if(phase==='calib-run') {
+        const elapsed=performance.now()-calibStart;
+        const pct=Math.min(elapsed/CALIB_MS,1);
+        const idx=Math.floor(pct*(calibPath.length-1));
+        if(calibPath[idx] && !isBlink) calibSamples.push({feat:features,sx:calibPath[idx][0],sy:calibPath[idx][1]});
+      }
+
+      if(phase==='stimulus' && gazeModel) {
+        const gaze = isBlink ? null : predictGaze(features,gazeModel);
+        totalF++;
+        if(gaze) {
+          trackedF++;
+          recordedFrames.push({t:Date.now()-sessionStart,x:gaze.x,y:gaze.y,tracked:1,feat:features});
+          if(lastGaze){
+            lastGaze.x=GAZE_ALPHA*gaze.x+(1-GAZE_ALPHA)*lastGaze.x;
+            lastGaze.y=GAZE_ALPHA*gaze.y+(1-GAZE_ALPHA)*lastGaze.y;
+          } else {lastGaze={...gaze};}
+
+          // Gaze dot intentionally NOT drawn during stimulus — avoids distracting the child.
+          // Data is still fully recorded above. Clear any residual marks.
+          gazeCtx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
+
+          document.getElementById('st-gaze').textContent='Tracking';
+          document.getElementById('st-gaze').className='sv ok';
+        } else {
+          recordedFrames.push({t:Date.now()-sessionStart,x:NaN,y:NaN,tracked:0,feat:null});
+          document.getElementById('st-gaze').textContent='Lost';
+          document.getElementById('st-gaze').className='sv bad';
+          // Clear gaze dot when face is lost
+          gazeCtx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
+        }
+        document.getElementById('st-frames').textContent=recordedFrames.length;
+        document.getElementById('st-track').textContent=Math.round(trackedF/totalF*100)+'%';
+
+        // Live Y std
+        if(recordedFrames.length>10) {
+          const ys=recordedFrames.filter(f=>f.tracked).map(f=>f.y);
+          if(ys.length>1){
+            const my=ys.reduce((a,b)=>a+b,0)/ys.length;
+            const sy=Math.sqrt(ys.reduce((a,b)=>a+(b-my)**2,0)/ys.length);
+            const el=document.getElementById('st-ystd');
+            el.textContent=sy.toFixed(0)+'px';
+            el.className='sv '+(sy>30?'ok':'bad');
+          }
+        }
+      }
+    } else if(phase==='stimulus') {
+      totalF++;
+      recordedFrames.push({t:Date.now()-sessionStart,x:NaN,y:NaN,tracked:0,feat:null});
+      if(totalF>0) document.getElementById('st-track').textContent=Math.round(trackedF/totalF*100)+'%';
+    }
+  }
+  procRaf=requestAnimationFrame(processingLoop);
+}
+
+// ─────────────────────────────────────────────
+// CSV BUILDER — exact Cilia 32-column format
+// ─────────────────────────────────────────────
+const CSV_HDR=[
+  'Unnamed: 0','RecordingTime [ms]','Time of Day [h:m:s:ms]','Trial','Stimulus',
+  'Export Start Trial Time [ms]','Export End Trial Time [ms]','Participant','Color',
+  'Tracking Ratio [%]','Index Right','Pupil Size Right X [px]','Pupil Size Right Y [px]',
+  'Point of Regard Right X [px]','Point of Regard Right Y [px]',
+  'Gaze Vector Right X','Gaze Vector Right Y','Gaze Vector Right Z',
+  'Eye Position Right X [mm]','Eye Position Right Y [mm]','Eye Position Right Z [mm]',
+  'Pupil Position Right X [px]','Pupil Position Right Y [px]',
+  'Port Status','Annotation Name','Annotation Description','Annotation Tags',
+  'Mouse Position X [px]','Mouse Position Y [px]','Scroll Direction X','Scroll Direction Y','Content'
+].join(',');
+
+function buildCSV() {
+  // Embed bias correction params as a comment in row 0
+  const biasMeta = `# GazeTrack v7 | bias_dx=${affineBias.dx.toFixed(2)} bias_dy=${affineBias.dy.toFixed(2)} bias_sx=${affineBias.sx.toFixed(4)} bias_sy=${affineBias.sy.toFixed(4)} val_samples=${valSamples.length}`;
+  const lines=[biasMeta, CSV_HDR];
+  recordedFrames.forEach((f,i)=>{
+    const d=new Date(sessionStart+f.t);
+    const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,'0');
+    const tod=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
+    const tr=f.tracked===1;
+    lines.push([
+      i, f.t.toFixed(3), tod, 'Trial001', 'webcam_stimulus', '0', '-',
+      META.pid, '-',
+      tr?'100':'0', tr?'1':'0', '-', '-',
+      tr?f.x.toFixed(1):'-', tr?f.y.toFixed(1):'-',
+      tr&&f.feat?f.feat[0].toFixed(4):'-',
+      tr&&f.feat?f.feat[1].toFixed(4):'-',
+      tr&&f.feat?f.feat[2].toFixed(4):'-',
+      '-','-','-','-','-','0','-','-','-','-','-','-','-','-'
+    ].join(','));
+  });
+  return lines.join('\n');
+}
+
+function downloadCSV() {
+  if(!csvData)return;
+  const ts=new Date().toISOString().replace(/[:.]/g,'-');
+  const fn=`gaze_${META.pid}_${META.group}_${ts}.csv`;
+  const url=URL.createObjectURL(new Blob([csvData],{type:'text/csv'}));
+  Object.assign(document.createElement('a'),{href:url,download:fn}).click();
+  URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────
+// END SESSION
+// ─────────────────────────────────────────────
+function endSession() {
+  if(phase==='done')return;
+  phase='done';
+  clearInterval(timerInt);
+  cancelAnimationFrame(procRaf);
+  cancelAnimationFrame(calibRaf);
+  cancelAnimationFrame(valRaf);
+  stimVideo.pause();
+
+  csvData=buildCSV();
+  const pct=totalF>0?Math.round(trackedF/totalF*100):0;
+  const dur=Math.round((Date.now()-sessionStart)/1000);
+  const ys=recordedFrames.filter(f=>f.tracked).map(f=>f.y);
+  let ystd=0;
+  if(ys.length>1){const my=ys.reduce((a,b)=>a+b,0)/ys.length;ystd=Math.sqrt(ys.reduce((a,b)=>a+(b-my)**2,0)/ys.length);}
+
+  const biasOk = Math.abs(affineBias.dx) > 5 || Math.abs(affineBias.dy) > 5;
+  const biasLabel = biasOk
+    ? `${affineBias.dx>0?'+':''}${affineBias.dx.toFixed(0)},${affineBias.dy>0?'+':''}${affineBias.dy.toFixed(0)}px`
+    : 'Minimal';
+  document.getElementById('done-stats').innerHTML=`
+    <div class="done-stat"><div class="n">${recordedFrames.length}</div><div class="l">FRAMES</div></div>
+    <div class="done-stat"><div class="n">${pct}%</div><div class="l">TRACKED</div></div>
+    <div class="done-stat"><div class="n">${dur}s</div><div class="l">DURATION</div></div>
+    <div class="done-stat"><div class="n" style="color:${ystd>30?'var(--accent)':'var(--warn)'}">${ystd.toFixed(0)}px</div><div class="l">Y STD</div></div>
+    <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
+  `;
+  showScreen('done');
+  setTimeout(downloadCSV, 600);
+
+  // Silent Google Drive upload
+  const ts2 = new Date().toISOString().replace(/[:.]/g,'-');
+  const fn2  = `gaze_${META.pid}_${META.group}_${ts2}.csv`;
+  setTimeout(() => uploadToDrive(csvData, fn2), 1200);
+}
+
+document.getElementById('end-btn').addEventListener('click',endSession);
+document.getElementById('btn-dl').addEventListener('click',downloadCSV);
+document.getElementById('btn-restart').addEventListener('click',()=>location.reload());
+
+// ─────────────────────────────────────────────
+// DEBUG & KEYS
+// ─────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.key==='d'||e.key==='D'){
+    const dbgPanel=document.getElementById('debug-panel');
+    dbgPanel.style.display=dbgPanel.style.display==='none'?'block':'none';
+  }
+});
+// ─────────────────────────────────────────────
+// PRE-FLIGHT CHECK ENGINE
+// ─────────────────────────────────────────────
+let pfStream = null;
+let pfFl = null;
+let pfRaf = null;
+let pfFrameCount = 0;
+let pfFpsStart = 0;
+let pfMeasuredFps = 0;
+let pfVideoEl = null;
+let pfCanvasEl = null;
+let pfCtx = null;
+let pfNoiseCtx = null;
+let pfMicStream = null;
+let pfAnalyser = null;
+let pfNoiseLevel = 0;
+let pfLastTs = -1;
+
+// Check state: 'scanning' | 'pass' | 'fail' | 'warn'
+const pfState = {
+  cam: 'scanning', fps: 'scanning', face: 'scanning',
+  iris: 'scanning', dist: 'scanning', light: 'scanning',
+  tilt: 'scanning', noise: 'scanning'
+};
+
+function pfSetCheck(id, state, msg) {
+  pfState[id] = state;
+  const card = document.getElementById('pfc-' + id);
+  const status = document.getElementById('pfc-' + id + '-s');
+  card.className = 'pf-check ' + state;
+  status.innerHTML = msg;
+  updatePfScore();
+}
+
+function updatePfScore() {
+  const vals = Object.values(pfState);
+  const done = vals.filter(v => v !== 'scanning').length;
+  const passes = vals.filter(v => v === 'pass').length;
+  const warns = vals.filter(v => v === 'warn').length;
+  const fails = vals.filter(v => v === 'fail').length;
+  const total = vals.length;
+
+  const score = Math.round(((passes + warns * 0.5) / total) * 100);
+  const fill = document.getElementById('pf-score-fill');
+  const pct = document.getElementById('pf-score-pct');
+  fill.style.width = score + '%';
+  fill.style.background = score >= 75 ? 'var(--accent)' : score >= 50 ? 'var(--gold)' : 'var(--warn)';
+  pct.textContent = done === total ? score + '%' : '…';
+
+  // Advice box
+  const advice = document.getElementById('pf-advice');
+  const tips = [];
+  if (pfState.light === 'fail') tips.push('<strong>💡 Lighting:</strong> Move a lamp to the front of the child. Avoid windows behind them.');
+  if (pfState.light === 'warn') tips.push('<strong>💡 Lighting:</strong> Could be brighter. A front-facing desk lamp helps significantly.');
+  if (pfState.dist === 'fail') tips.push('<strong>📏 Distance:</strong> Move the child closer to the screen — aim for 50–70 cm away.');
+  if (pfState.dist === 'warn') tips.push('<strong>📏 Distance:</strong> Slightly far. Move child a bit closer for better iris tracking.');
+  if (pfState.tilt === 'fail') tips.push('<strong>📐 Head tilt:</strong> Ask the child to sit straight and look at the screen directly.');
+  if (pfState.tilt === 'warn') tips.push('<strong>📐 Head tilt:</strong> Mild tilt detected. Ask child to sit upright.');
+  if (pfState.face === 'fail') tips.push('<strong>👤 No face detected:</strong> Make sure the child is in frame and the camera is at eye level.');
+  if (pfState.iris === 'fail') tips.push('<strong>👁 Iris not detected:</strong> Improve lighting and ensure the child is not wearing glasses with heavy reflections.');
+  if (pfState.noise === 'fail') tips.push('<strong>🔇 Loud environment:</strong> Move to a quieter room — distractions affect how the child tracks the bunny.');
+  if (pfState.fps === 'fail') tips.push('<strong>⚡ Low frame rate:</strong> Close other browser tabs and applications to free up CPU/GPU.');
+
+  if (tips.length > 0) {
+    advice.innerHTML = tips.join('<br><br>');
+    advice.classList.add('show');
+  } else {
+    advice.classList.remove('show');
+  }
+
+  // Proceed button
+  const proceed = document.getElementById('pf-proceed');
+  if (done < total) { proceed.disabled = true; return; }
+
+  if (fails === 0 && done === total) {
+    proceed.disabled = false;
+    if (warns === 0) {
+      proceed.textContent = '✅  All Clear — Begin Calibration';
+      proceed.className = 'pf-proceed';
+    } else {
+      proceed.textContent = '⚠️  Proceed with Warnings';
+      proceed.className = 'pf-proceed warn-proceed';
+    }
+  } else {
+    proceed.disabled = false;
+    proceed.textContent = '⚠️  Proceed Anyway (not recommended)';
+    proceed.className = 'pf-proceed warn-proceed';
+  }
+}
+
+async function startPreflightCheck() {
+  pfVideoEl  = document.getElementById('pf-video');
+  pfCanvasEl = document.getElementById('pf-canvas');
+  pfCtx      = pfCanvasEl.getContext('2d');
+
+  // 1. Camera + resolution check
+  try {
+    pfStream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:640}, height:{ideal:480}, facingMode:'user', frameRate:{ideal:30} },
+      audio: false
+    });
+    pfVideoEl.srcObject = pfStream;
+    pfVideoEl.play();
+
+    await new Promise(r => { pfVideoEl.onloadedmetadata = r; });
+    const track = pfStream.getVideoTracks()[0];
+    const settings = track.getSettings();
+    const w = settings.width || pfVideoEl.videoWidth;
+    const h = settings.height || pfVideoEl.videoHeight;
+
+    if (w >= 600 && h >= 440) {
+      pfSetCheck('cam', 'pass', `✓ ${w}×${h}`);
+    } else if (w >= 400) {
+      pfSetCheck('cam', 'warn', `⚠ ${w}×${h} — ideally 640×480+`);
+    } else {
+      pfSetCheck('cam', 'fail', `✗ ${w}×${h} — too low for iris tracking`);
+    }
+
+    // Start FPS measurement (3-second window)
+    pfFpsStart = performance.now();
+    pfFrameCount = 0;
+    pfFl = null;
+
+    // Load face landmarker for pre-flight (reuse preview logic)
+    loadPfDetector();
+
+    // Start the pre-flight loop
+    pfLoop();
+
+  } catch(e) {
+    pfSetCheck('cam', 'fail', '✗ Camera access denied or not found');
+    pfSetCheck('fps', 'fail', '✗ No camera');
+    pfSetCheck('face', 'fail', '✗ No camera');
+    pfSetCheck('iris', 'fail', '✗ No camera');
+    pfSetCheck('dist', 'fail', '✗ No camera');
+    pfSetCheck('light', 'fail', '✗ No camera');
+    pfSetCheck('tilt', 'fail', '✗ No camera');
+  }
+
+  // Noise check via microphone
+  checkRoomNoise();
+}
+
+async function loadPfDetector() {
+  try {
+    const { FaceLandmarker: FL, FilesetResolver: FR } = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs'
+    );
+    const resolver = await FR.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+    );
+    pfFl = await FL.createFromOptions(resolver, {
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate:'GPU'
+      },
+      runningMode:'VIDEO', numFaces:1,
+      outputFaceBlendshapes:false,
+      outputFacialTransformationMatrixes:true,
+      outputIrisLandmarks:true
+    });
+  } catch(e) { /* silently fail — face checks will stay scanning */ }
+}
+
+let _pfFaceSamples = [];
+let _pfFpsDone = false;
+let _pfFaceChecksDone = false;
+
+function pfLoop() {
+  if (phase !== 'preflight') return;
+  pfRaf = requestAnimationFrame(pfLoop);
+
+  if (!pfVideoEl || pfVideoEl.readyState < 2) return;
+
+  // Sync canvas
+  const rect = pfCanvasEl.getBoundingClientRect();
+  const dW = Math.round(rect.width) || 640;
+  const dH = Math.round(rect.height) || 480;
+  if (pfCanvasEl.width !== dW || pfCanvasEl.height !== dH) {
+    pfCanvasEl.width = dW; pfCanvasEl.height = dH;
+  }
+
+  pfFrameCount++;
+  const now = performance.now();
+
+  // FPS check — after 3 seconds
+  if (!_pfFpsDone && now - pfFpsStart > 3000) {
+    _pfFpsDone = true;
+    pfMeasuredFps = pfFrameCount / ((now - pfFpsStart) / 1000);
+    if (pfMeasuredFps >= 24) {
+      pfSetCheck('fps', 'pass', `✓ ${pfMeasuredFps.toFixed(0)} fps`);
+    } else if (pfMeasuredFps >= 15) {
+      pfSetCheck('fps', 'warn', `⚠ ${pfMeasuredFps.toFixed(0)} fps — ideally 24+`);
+    } else {
+      pfSetCheck('fps', 'fail', `✗ ${pfMeasuredFps.toFixed(0)} fps — too slow`);
+    }
+  }
+
+  // Face/iris/lighting/distance/tilt — need the detector
+  if (!pfFl) return;
+
+  let ts = pfVideoEl.currentTime * 1000;
+  if (ts <= pfLastTs) ts = pfLastTs + 0.001;
+  pfLastTs = ts;
+
+  let res;
+  try { res = pfFl.detectForVideo(pfVideoEl, ts); } catch(e) { return; }
+
+  const hasFace = !!(res.faceLandmarks && res.faceLandmarks.length > 0);
+  const hasMat  = !!(res.facialTransformationMatrixes && res.facialTransformationMatrixes.length > 0);
+
+  pfCtx.clearRect(0, 0, pfCanvasEl.width, pfCanvasEl.height);
+
+  if (hasFace) {
+    const lm = res.faceLandmarks[0];
+    const mat = hasMat ? res.facialTransformationMatrixes[0] : null;
+
+    // Draw iris overlay
+    const fx = x => (1 - x) * pfCanvasEl.width;
+    const fy = y => y * pfCanvasEl.height;
+    [[468,469],[473,474]].forEach(([c,e]) => {
+      if (!lm[c] || !lm[e]) return;
+      const cx=fx(lm[c].x), cy=fy(lm[c].y);
+      const ex=fx(lm[e].x), ey=fy(lm[e].y);
+      const r=Math.hypot(ex-cx,ey-cy)+1;
+      pfCtx.beginPath(); pfCtx.arc(cx,cy,r,0,Math.PI*2);
+      pfCtx.strokeStyle='#00e5b0'; pfCtx.lineWidth=2; pfCtx.globalAlpha=0.8; pfCtx.stroke();
+      pfCtx.globalAlpha=1;
+    });
+
+    const hasIris = !!(lm[468] && lm[473]);
+
+    // Lighting: sample brightness from face region pixels
+    const fx1 = Math.round((1-lm[10].x)*pfCanvasEl.width);
+    const fy1 = Math.round(lm[10].y*pfCanvasEl.height);
+    const fw  = Math.round(Math.abs(lm[361].x-lm[132].x)*pfCanvasEl.width);
+    const fh  = Math.round(Math.abs(lm[152].y-lm[10].y)*pfCanvasEl.height);
+
+    let brightness = 0, contrast = 0;
+    try {
+      // Render current frame to canvas to sample pixels
+      const tmpC = document.createElement('canvas');
+      tmpC.width = pfVideoEl.videoWidth; tmpC.height = pfVideoEl.videoHeight;
+      const tmpCtx = tmpC.getContext('2d');
+      tmpCtx.drawImage(pfVideoEl, 0, 0);
+      // Sample from face bounding box (mirrored coords)
+      const sx = Math.max(0, pfVideoEl.videoWidth - fx1 - fw);
+      const sy = Math.max(0, fy1);
+      const sw = Math.min(fw, pfVideoEl.videoWidth - sx);
+      const sh = Math.min(fh, pfVideoEl.videoHeight - sy);
+      if (sw > 0 && sh > 0) {
+        const imgData = tmpCtx.getImageData(sx, sy, sw, sh);
+        const d = imgData.data;
+        let sum = 0, sumSq = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const lv = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+          sum += lv; sumSq += lv*lv; n++;
+        }
+        brightness = sum / n;
+        const mean = brightness;
+        contrast = Math.sqrt(sumSq/n - mean*mean);
+      }
+    } catch(e) {}
+
+    // Inter-ocular distance for distance estimation
+    const li = lm[468], ri = lm[473];
+    const iod = li && ri ? Math.hypot(ri.x-li.x, ri.y-li.y) : 0;
+    // IOD in normalised units: ~0.06-0.08 at ideal distance (50-70cm)
+    // Too small = too far, too large = too close
+    const iodPx = iod * pfCanvasEl.width;
+
+    // Head tilt from matrix
+    let rollDeg = 0, pitchDeg = 0;
+    if (mat?.data) {
+      const m = mat.data;
+      pitchDeg = Math.asin(Math.max(-1,Math.min(1,-m[6]))) * 180/Math.PI;
+      rollDeg  = Math.atan2(m[4], m[0]) * 180/Math.PI;
+    }
+
+    _pfFaceSamples.push({ hasIris, brightness, contrast, iodPx, rollDeg, pitchDeg });
+
+    // After 60 samples (~2s at 30fps), finalise face-dependent checks
+    if (!_pfFaceChecksDone && _pfFaceSamples.length >= 60) {
+      _pfFaceChecksDone = true;
+      const s = _pfFaceSamples;
+      const faceRate = 1; // we're in the if(hasFace) branch every frame
+
+      // Face
+      pfSetCheck('face', 'pass', '✓ Face detected consistently');
+
+      // Iris
+      const irisRate = s.filter(f=>f.hasIris).length / s.length;
+      if (irisRate > 0.85)      pfSetCheck('iris', 'pass', `✓ Iris tracked ${Math.round(irisRate*100)}% of frames`);
+      else if (irisRate > 0.5)  pfSetCheck('iris', 'warn', `⚠ Iris tracked ${Math.round(irisRate*100)}% — check lighting`);
+      else                      pfSetCheck('iris', 'fail', `✗ Iris tracked only ${Math.round(irisRate*100)}% — poor lighting or glasses`);
+
+      // Lighting
+      const avgBright = s.reduce((a,b)=>a+b.brightness,0)/s.length;
+      const avgContrast = s.reduce((a,b)=>a+b.contrast,0)/s.length;
+      if (avgBright >= 90 && avgBright <= 210 && avgContrast >= 25) {
+        pfSetCheck('light', 'pass', `✓ Good — brightness ${Math.round(avgBright)}, contrast ${Math.round(avgContrast)}`);
+      } else if (avgBright < 60) {
+        pfSetCheck('light', 'fail', `✗ Too dark (${Math.round(avgBright)}/255) — add front lighting`);
+      } else if (avgBright > 220) {
+        pfSetCheck('light', 'warn', `⚠ Overexposed (${Math.round(avgBright)}/255) — reduce backlight`);
+      } else if (avgContrast < 15) {
+        pfSetCheck('light', 'warn', `⚠ Low contrast (${Math.round(avgContrast)}) — flat lighting`);
+      } else {
+        pfSetCheck('light', 'warn', `⚠ Brightness ${Math.round(avgBright)} — could be improved`);
+      }
+
+      // Distance via IOD
+      const avgIod = s.reduce((a,b)=>a+b.iodPx,0)/s.length;
+      if (avgIod >= 28 && avgIod <= 70) {
+        pfSetCheck('dist', 'pass', `✓ Good distance (IOD=${Math.round(avgIod)}px)`);
+      } else if (avgIod < 20) {
+        pfSetCheck('dist', 'fail', `✗ Too far away — move child closer`);
+      } else if (avgIod < 28) {
+        pfSetCheck('dist', 'warn', `⚠ Slightly far (IOD=${Math.round(avgIod)}px) — move a bit closer`);
+      } else {
+        pfSetCheck('dist', 'warn', `⚠ Very close (IOD=${Math.round(avgIod)}px) — move child back slightly`);
+      }
+
+      // Tilt: roll & pitch
+      const avgRoll  = s.reduce((a,b)=>a+Math.abs(b.rollDeg),0)/s.length;
+      const avgPitch = s.reduce((a,b)=>a+Math.abs(b.pitchDeg),0)/s.length;
+      if (avgRoll <= 10 && avgPitch <= 15) {
+        pfSetCheck('tilt', 'pass', `✓ Upright (roll ${Math.round(avgRoll)}°, pitch ${Math.round(avgPitch)}°)`);
+      } else if (avgRoll <= 18 || avgPitch <= 25) {
+        pfSetCheck('tilt', 'warn', `⚠ Mild tilt (roll ${Math.round(avgRoll)}°, pitch ${Math.round(avgPitch)}°)`);
+      } else {
+        pfSetCheck('tilt', 'fail', `✗ Large tilt (roll ${Math.round(avgRoll)}°) — ask child to sit straight`);
+      }
+    }
+
+  } else {
+    // No face visible — after 5s of trying, mark as fail
+    if (_pfFaceSamples.length === 0 && now - pfFpsStart > 5000 && !_pfFaceChecksDone) {
+      _pfFaceChecksDone = true;
+      pfSetCheck('face', 'fail', '✗ No face detected — check camera position');
+      pfSetCheck('iris', 'fail', '✗ No face detected');
+      pfSetCheck('dist', 'fail', '✗ No face detected');
+      pfSetCheck('light', 'fail', '✗ No face — check lighting');
+      pfSetCheck('tilt',  'fail', '✗ No face detected');
+    }
+  }
+}
+
+async function checkRoomNoise() {
+  try {
+    pfMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(pfMicStream);
+    pfAnalyser = audioCtx.createAnalyser();
+    pfAnalyser.fftSize = 256;
+    source.connect(pfAnalyser);
+
+    const data = new Uint8Array(pfAnalyser.frequencyBinCount);
+    let samples = [];
+    const measureNoise = () => {
+      if (phase !== 'preflight') return;
+      pfAnalyser.getByteFrequencyData(data);
+      const avg = data.reduce((a,b)=>a+b,0) / data.length;
+      samples.push(avg);
+      if (samples.length < 60) {
+        setTimeout(measureNoise, 50);
+      } else {
+        const avgNoise = samples.reduce((a,b)=>a+b,0)/samples.length;
+        // avgNoise: 0-255 from FFT. Quiet room <8, moderate 8-20, loud >20
+        if (avgNoise < 10) {
+          pfSetCheck('noise', 'pass', `✓ Quiet environment (${avgNoise.toFixed(1)})`);
+        } else if (avgNoise < 22) {
+          pfSetCheck('noise', 'warn', `⚠ Moderate noise (${avgNoise.toFixed(1)}) — manageable`);
+        } else {
+          pfSetCheck('noise', 'fail', `✗ Loud environment (${avgNoise.toFixed(1)}) — move to quieter room`);
+        }
+        // Stop mic
+        pfMicStream.getTracks().forEach(t=>t.stop());
+      }
+    };
+    setTimeout(measureNoise, 200);
+  } catch(e) {
+    // Microphone denied — mark as warn (not critical)
+    pfSetCheck('noise', 'warn', '⚠ Mic access denied — check manually');
+  }
+}
+
+function stopPreflightCheck() {
+  cancelAnimationFrame(pfRaf);
+  if (pfStream) pfStream.getTracks().forEach(t=>t.stop());
+  if (pfMicStream) pfMicStream.getTracks().forEach(t=>t.stop());
+  if (pfFl) { try { pfFl.close(); } catch(e){} }
+  pfStream = null; pfMicStream = null; pfFl = null;
+  _pfFaceSamples = [];
+  _pfFpsDone = false;
+  _pfFaceChecksDone = false;
+  pfLastTs = -1;
+}
+
+// ─────────────────────────────────────────────
+// GOOGLE DRIVE SILENT UPLOAD
+// ─────────────────────────────────────────────
+const GDRIVE_CLIENT_ID = '864707039212-vosjr7obitpbcd7hjol8d2cvq5d6aj7u.apps.googleusercontent.com';
+const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
+const GDRIVE_FOLDER    = 'GazeTrack Sessions';
+
+let gAccessToken = null;
+let gFolderId    = null;
+
+function driveSetStatus(icon, msg, color) {
+  const el = document.getElementById('drive-status');
+  if (!el) return;
+  document.getElementById('drive-icon').textContent = icon;
+  document.getElementById('drive-msg').textContent  = msg;
+  el.style.borderColor = color || 'var(--border)';
+}
+
+// Called automatically when session ends
+async function uploadToDrive(csvText, filename) {
+  driveSetStatus('☁️', 'Connecting to Google Drive…', 'var(--border)');
+  try {
+    // 1. Get OAuth token silently via Google Identity Services
+    gAccessToken = await getGoogleToken();
+
+    // 2. Find or create the "GazeTrack Sessions" folder
+    gFolderId = await findOrCreateFolder(GDRIVE_FOLDER, gAccessToken);
+
+    // 3. Upload the CSV file
+    driveSetStatus('⬆️', 'Uploading CSV…', 'rgba(0,229,176,0.4)');
+    await uploadFile(csvText, filename, gFolderId, gAccessToken);
+
+    driveSetStatus('✅', `Saved to Drive: ${filename}`, 'rgba(0,229,176,0.4)');
+  } catch(err) {
+    console.error('[GazeTrack] Drive upload failed:', err);
+    driveSetStatus('⚠️', 'Drive upload failed — CSV downloaded locally', 'rgba(255,92,58,0.4)');
+  }
+}
+
+function getGoogleToken() {
+  return new Promise((resolve, reject) => {
+    if (!window.google) {
+      reject(new Error('Google Identity Services not loaded'));
+      return;
+    }
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GDRIVE_CLIENT_ID,
+      scope: GDRIVE_SCOPE,
+      prompt: '',  // silent if already consented, popup if first time
+      callback: (resp) => {
+        if (resp.error) { reject(new Error(resp.error)); return; }
+        resolve(resp.access_token);
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+
+async function findOrCreateFolder(name, token) {
+  // Search for existing folder
+  const q = encodeURIComponent(`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  if (data.files && data.files.length > 0) return data.files[0].id;
+
+  // Create folder
+  const create = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder' })
+  });
+  const folder = await create.json();
+  return folder.id;
+}
+
+async function uploadFile(csvText, filename, folderId, token) {
+  const boundary = '-------GazeTrackBoundary';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelim = `\r\n--${boundary}--`;
+
+  const metadata = JSON.stringify({ name: filename, parents: [folderId] });
+  const body =
+    delimiter +
+    'Content-Type: application/json\r\n\r\n' +
+    metadata +
+    delimiter +
+    'Content-Type: text/csv\r\n\r\n' +
+    csvText +
+    closeDelim;
+
+  const resp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary="${boundary}"`
+    },
+    body
+  });
+  if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+  return resp.json();
+}
+
+window.addEventListener('beforeunload',()=>{
+  if (pfStream) pfStream.getTracks().forEach(t=>t.stop());
+  if (pfMicStream) pfMicStream.getTracks().forEach(t=>t.stop());
+  if(sessionStream) sessionStream.getTracks().forEach(t=>t.stop());
+  if(camStream) camStream.getTracks().forEach(t=>t.stop());
+});
+</script>
+</body>
+</html>
