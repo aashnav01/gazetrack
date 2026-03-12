@@ -802,13 +802,6 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
           <div class="pf-check-status" id="pfc-dist-s"><span class="pf-spin"></span> Estimating…</div>
         </div>
       </div>
-      <div class="pf-check scanning" id="pfc-noise">
-        <div class="pf-check-icon">🔇</div>
-        <div class="pf-check-body">
-          <div class="pf-check-name">Room Noise</div>
-          <div class="pf-check-status" id="pfc-noise-s"><span class="pf-spin"></span> Listening…</div>
-        </div>
-      </div>
       <div class="pf-check scanning" id="pfc-browser">
         <div class="pf-check-icon">🌐</div>
         <div class="pf-check-body">
@@ -972,7 +965,7 @@ let calibSamples = [];
 let valPoints=[], valIdx=0, valSamples=[], valRaf=null;
 let valDwellMs=1200, valStart=0;
 let affineBias = {dx:0,dy:0,sx:1,sy:1};
-let calibStart=0, calibPausedAt=null;
+let calibStart=0, calibPausedAt=null, calibSoundPlayed=false;
 let calibPath=[], calibRaf=null, procRaf=null;
 let recordedFrames=[], totalF=0, trackedF=0;
 let sessionStart=0, timerInt=null, lastGaze=null;
@@ -1008,13 +1001,13 @@ function showScreen(n){
 
 // ─────────────────────────────────────────────
 // PRE-FLIGHT — lightweight, runs in background
-// Uses only canvas pixel analysis + mic for noise
+// Uses only canvas pixel analysis — zero CPU cost, fully live
 // NO MediaPipe during pre-flight — zero CPU cost
 // MediaPipe loads only when Begin Session clicked
 // ─────────────────────────────────────────────
-const pfState={cam:'scanning',face:'scanning',light:'scanning',dist:'scanning',noise:'scanning',browser:'scanning'};
-let pfRaf=null, pfMicStream=null, pfVideoTs=-1;
-let _pfSamples=[], _pfDone=false;
+const pfState={cam:'scanning',face:'scanning',light:'scanning',dist:'scanning',browser:'scanning'};
+let pfRaf=null, pfVideoTs=-1;
+let _pfSamples=[], pfLastScoreUpdate=0;
 
 function pfSet(id,state,msg){
   pfState[id]=state;
@@ -1045,7 +1038,6 @@ function pfUpdateScore(){
   if(pfState.dist==='fail')   tips.push('<strong>📏 Distance:</strong> Move child to 50–70 cm from screen.');
   if(pfState.dist==='warn')   tips.push('<strong>📏 Distance:</strong> Move child slightly closer.');
   if(pfState.face==='fail')   tips.push('<strong>👤 No face:</strong> Make sure child is in frame, camera at eye level.');
-  if(pfState.noise==='fail')  tips.push('<strong>🔇 Noisy room:</strong> Move to quieter space.');
   if(pfState.browser==='warn')tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
   const adv=document.getElementById('pf-advice');
   if(adv){adv.innerHTML=tips.join('<br>');adv.className='pf-advice'+(tips.length?' show':'');}
@@ -1073,23 +1065,19 @@ function pfUpdateScore(){
   }
 }
 
-// Lightweight pixel-based face check — no MediaPipe
-// Uses motion/skin-tone heuristic from camera feed
+// Lightweight pixel-based checks — fully live, updates every 200ms as child moves
 let _pfCanvas=null, _pfCtx=null, _pfThrottle=0;
 function pfAnalyseFrame(){
   if(phase!=='intake')return;
   const now=performance.now();
-  if(now-_pfThrottle<200){pfRaf=requestAnimationFrame(pfAnalyseFrame);return;} // 5fps max — near zero CPU
+  if(now-_pfThrottle<200){pfRaf=requestAnimationFrame(pfAnalyseFrame);return;}
   _pfThrottle=now;
-
   if(!camPreview||camPreview.readyState<2){pfRaf=requestAnimationFrame(pfAnalyseFrame);return;}
-
   if(!_pfCanvas){
     _pfCanvas=document.createElement('canvas');
-    _pfCanvas.width=80;_pfCanvas.height=60; // tiny — fast
+    _pfCanvas.width=80;_pfCanvas.height=60;
     _pfCtx=_pfCanvas.getContext('2d',{willReadFrequently:true});
   }
-
   try{
     _pfCtx.drawImage(camPreview,0,0,80,60);
     const d=_pfCtx.getImageData(0,0,80,60).data;
@@ -1097,81 +1085,41 @@ function pfAnalyseFrame(){
     for(let i=0;i<d.length;i+=4){
       const r=d[i],g=d[i+1],b=d[i+2];
       sumR+=r;sumG+=g;sumB+=b;n++;
-      // Loose skin-tone heuristic: R>95, G>40, B>20, R>G>B, R-G>15
       if(r>80&&g>40&&b>20&&r>g&&r>b&&(r-b)>15) skinPx++;
     }
     const brightness=(sumR+sumG+sumB)/(n*3);
     const skinRatio=skinPx/n;
-
+    // Rolling average over 5 frames (~1s) for stability
     _pfSamples.push({brightness,skinRatio});
-    if(_pfSamples.length>15) _pfSamples.shift(); // rolling 3s window
-
-    if(_pfSamples.length>=8){
-      const avgBright=_pfSamples.reduce((a,b)=>a+b.brightness,0)/_pfSamples.length;
-      const avgSkin=_pfSamples.reduce((a,b)=>a+b.skinRatio,0)/_pfSamples.length;
-
-      // Lighting
-      if(!_pfDone||pfState.light==='scanning'){
-        if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`✓ Good (${Math.round(avgBright)}/255)`);
-        else if(avgBright<40)                pfSet('light','fail',`✗ Too dark (${Math.round(avgBright)}) — add light`);
-        else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) — improve lighting`);
-        else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) — check backlight`);
-      }
-
-      // Face + distance via skin ratio
-      if(!_pfDone||pfState.face==='scanning'){
-        if(avgSkin>0.06)      pfSet('face','pass','✓ Face detected');
-        else if(avgSkin>0.03) pfSet('face','warn','⚠ Face partially visible');
-        else                  pfSet('face','fail','✗ No face — check camera position');
-      }
-      if(!_pfDone||pfState.dist==='scanning'){
-        if(avgSkin>0.12)      pfSet('dist','warn','⚠ Very close — move back slightly');
-        else if(avgSkin>0.06) pfSet('dist','pass','✓ Good distance');
-        else if(avgSkin>0.03) pfSet('dist','warn','⚠ Too far — move closer (50–70 cm)');
-        else                  pfSet('dist','fail','✗ No face detected');
-      }
-      _pfDone=true;
-    }
+    if(_pfSamples.length>5) _pfSamples.shift();
+    const avgBright=_pfSamples.reduce((a,b)=>a+b.brightness,0)/_pfSamples.length;
+    const avgSkin=_pfSamples.reduce((a,b)=>a+b.skinRatio,0)/_pfSamples.length;
+    // ── Lighting — live ──
+    if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`✓ Good (${Math.round(avgBright)}/255)`);
+    else if(avgBright<40)                pfSet('light','fail',`✗ Too dark (${Math.round(avgBright)}) — add light`);
+    else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) — improve lighting`);
+    else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) — reduce backlight`);
+    // ── Face — live ──
+    if(avgSkin>0.06)      pfSet('face','pass','✓ Face detected');
+    else if(avgSkin>0.03) pfSet('face','warn','⚠ Face partially visible — reposition');
+    else                  pfSet('face','fail','✗ No face — check camera position');
+    // ── Distance — live, updates as child moves ──
+    if(avgSkin>0.12)      pfSet('dist','warn','⚠ Too close — move child back slightly');
+    else if(avgSkin>0.06) pfSet('dist','pass','✓ Good distance (~50–70 cm)');
+    else if(avgSkin>0.03) pfSet('dist','warn','⚠ Too far — move child closer');
+    else                  pfSet('dist','fail','✗ No face detected');
   }catch(e){}
-
   pfRaf=requestAnimationFrame(pfAnalyseFrame);
 }
 
-async function pfCheckNoise(){
-  try{
-    pfMicStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const src=ctx.createMediaStreamSource(pfMicStream);
-    const an=ctx.createAnalyser(); an.fftSize=256;
-    src.connect(an);
-    const data=new Uint8Array(an.frequencyBinCount);
-    let samples=[],done=false;
-    const measure=()=>{
-      if(done||phase!=='intake')return;
-      an.getByteFrequencyData(data);
-      samples.push(data.reduce((a,b)=>a+b,0)/data.length);
-      if(samples.length<30){setTimeout(measure,100);}
-      else{
-        done=true;
-        const avg=samples.reduce((a,b)=>a+b,0)/samples.length;
-        if(avg<12)       pfSet('noise','pass',`✓ Quiet (${avg.toFixed(1)})`);
-        else if(avg<25)  pfSet('noise','warn',`⚠ Some noise (${avg.toFixed(1)})`);
-        else             pfSet('noise','fail',`✗ Loud (${avg.toFixed(1)}) — find quieter space`);
-        pfMicStream.getTracks().forEach(t=>t.stop());
-        pfMicStream=null;
-      }
-    };
-    setTimeout(measure,300);
-  }catch(e){pfSet('noise','warn','⚠ Mic denied — check manually');}
-}
-
 function pfCheckBrowser(){
-  const isChrome=/Chrome/.test(navigator.userAgent)&&!/Edg/.test(navigator.userAgent);
-  const isEdge=/Edg/.test(navigator.userAgent);
-  const isFirefox=/Firefox/.test(navigator.userAgent);
+  const ua=navigator.userAgent;
+  const isChrome=/Chrome/.test(ua)&&!/Edg/.test(ua)&&!/OPR/.test(ua);
+  const isEdge=/Edg/.test(ua);
+  const isFirefox=/Firefox/.test(ua);
   if(isChrome)       pfSet('browser','pass','✓ Chrome — optimal');
   else if(isEdge)    pfSet('browser','pass','✓ Edge — good');
-  else if(isFirefox) pfSet('browser','warn','⚠ Firefox — Chrome preferred');
+  else if(isFirefox) pfSet('browser','warn','⚠ Firefox — use Chrome for best results');
   else               pfSet('browser','warn','⚠ Use Chrome for best results');
 }
 
@@ -1196,13 +1144,8 @@ async function initCamera(){
     pfSet('cam','pass',`✓ ${w}×${h}`);
 
     checkStartBtn();
-    // Start lightweight pixel analysis — near zero CPU
     pfRaf=requestAnimationFrame(pfAnalyseFrame);
-    // Browser check
     pfCheckBrowser();
-    // Noise check
-    pfCheckNoise();
-    // Draw preview mesh (uses previewFl when ready)
     loadPreviewDetector();
   }catch(e){
     document.getElementById('cam-status-txt').textContent='✗ Camera error — allow access';
@@ -1223,11 +1166,11 @@ let previewFl=null, previewRaf=null, lastPreviewTs=-1;
 async function loadPreviewDetector(){
   try{
     const resolver=await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
     previewFl=await FaceLandmarker.createFromOptions(resolver,{
       baseOptions:{
-        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        modelAssetPath:'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm/face_landmarker.task',
         delegate:MP_DELEGATE
       },
       runningMode:'VIDEO',numFaces:1,
@@ -1339,7 +1282,6 @@ document.getElementById('start-btn').addEventListener('click',()=>{
   META.notes=document.getElementById('f-notes').value.trim();
   cancelAnimationFrame(previewRaf);
   cancelAnimationFrame(pfRaf);
-  if(pfMicStream){pfMicStream.getTracks().forEach(t=>t.stop());pfMicStream=null;}
   phase='loading';
   showScreen('loading');
   beginSession();
@@ -1360,11 +1302,11 @@ async function beginSession(){
     }else{
       document.getElementById('load-msg').textContent='Loading eye tracking model…';
       const resolver=await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
       );
       faceLandmarker=await FaceLandmarker.createFromOptions(resolver,{
         baseOptions:{
-          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+          modelAssetPath:'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm/face_landmarker.task',
           delegate:MP_DELEGATE
         },
         runningMode:'VIDEO',numFaces:1,
