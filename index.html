@@ -4,6 +4,8 @@
 <meta charset="UTF-8"/>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<!-- Favicon added to prevent 404 error -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
 <title>GazeTrack — ASD Eye Tracking</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -1511,6 +1513,28 @@ function startCalibAnim(){
 }
 
 // ─────────────────────────────────────────────
+// FINALISE CALIBRATION → start validation
+// ─────────────────────────────────────────────
+function finaliseCalib(){
+  cancelAnimationFrame(calibRaf);
+  calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
+  gazeModel=trainModel(calibSamples);
+  if(!gazeModel){
+    const card=document.getElementById('calib-card');
+    card.querySelector('h2').textContent='⚠️ Calibration incomplete';
+    card.querySelector('p').textContent=`Only ${calibSamples.length} samples (need ${MIN_SAMPLES}). Please retry.`;
+    document.getElementById('calib-start-btn').textContent='↺ Retry';
+    document.getElementById('calib-overlay').style.display='flex';
+    calibSamples=[];
+    phase='calib-ready';            // ← allow retry
+    return;
+  }
+  // Switch to validation phase
+  phase='validation';
+  startValidation();
+}
+
+// ─────────────────────────────────────────────
 // VALIDATION
 // ─────────────────────────────────────────────
 function startValidation(){
@@ -1582,34 +1606,23 @@ function finishValidation(){
     affineBias=computeAffineCorrection(valSamples);
     const badCalib=Math.abs(affineBias.dx)>300||affineBias.sx>1.4||affineBias.sx<0.7;
     if(badCalib){
-      affineBias={dx:0,dy:0,sx:1,sy:1};calibSamples=[];
+      affineBias={dx:0,dy:0,sx:1,sy:1};
+      calibSamples=[];
+      gazeModel=null;                     // discard invalid model
       const card=document.getElementById('calib-card');
       card.querySelector('h2').textContent='🐰 Let\'s try again!';
       card.querySelector('p').innerHTML='Child may have looked away — that\'s OK!<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, remind: <strong style="color:#fff">"Watch the bunny!"</strong>';
       document.getElementById('calib-start-btn').textContent='🐰 Play Again!';
       document.getElementById('calib-overlay').style.display='flex';
+      phase='calib-ready';                 // back to ready for retry
       return;
     }
   }
-  phase='stimulus';showScreen('stimulus');
+  phase='stimulus';
+  showScreen('stimulus');
   document.getElementById('h-child').textContent=META.pid;
   document.getElementById('h-group').textContent=META.group;
   startRecording();
-}
-
-function finaliseCalib(){
-  cancelAnimationFrame(calibRaf);
-  calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
-  gazeModel=trainModel(calibSamples);
-  if(!gazeModel){
-    const card=document.getElementById('calib-card');
-    card.querySelector('h2').textContent='⚠️ Calibration incomplete';
-    card.querySelector('p').textContent=`Only ${calibSamples.length} samples (need ${MIN_SAMPLES}). Please retry.`;
-    document.getElementById('calib-start-btn').textContent='↺ Retry';
-    document.getElementById('calib-overlay').style.display='flex';
-    calibSamples=[];return;
-  }
-  startValidation();
 }
 
 document.getElementById('calib-start-btn').addEventListener('click',()=>{
@@ -1660,6 +1673,7 @@ document.getElementById('sound-btn').addEventListener('click',()=>{
 let _lastVT=-1;
 function processingLoop(){
   if(phase==='done')return;
+  // During validation we do nothing here – validation runs separately
   if(phase==='validation'){procRaf=requestAnimationFrame(processingLoop);return;}
   if(webcam.readyState>=2&&faceLandmarker){
     if(webcam.currentTime===_lastVT){procRaf=requestAnimationFrame(processingLoop);return;}
