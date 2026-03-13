@@ -365,15 +365,11 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
       </div>
       <div class="pf-check scanning" id="pfc-face">
         <div class="pf-check-icon">👤</div>
-        <div class="pf-check-body"><div class="pf-check-name">Face Detected</div><div class="pf-check-status" id="pfc-face-s"><span class="pf-spin"></span> Looking…</div></div>
+        <div class="pf-check-body"><div class="pf-check-name">Position &amp; Distance</div><div class="pf-check-status" id="pfc-face-s"><span class="pf-spin"></span> Looking…</div></div>
       </div>
       <div class="pf-check scanning" id="pfc-light">
         <div class="pf-check-icon">💡</div>
         <div class="pf-check-body"><div class="pf-check-name">Lighting</div><div class="pf-check-status" id="pfc-light-s"><span class="pf-spin"></span> Analysing…</div></div>
-      </div>
-      <div class="pf-check scanning" id="pfc-dist">
-        <div class="pf-check-icon">📏</div>
-        <div class="pf-check-body"><div class="pf-check-name">Distance</div><div class="pf-check-status" id="pfc-dist-s"><span class="pf-spin"></span> Estimating…</div></div>
       </div>
       <div class="pf-check scanning" id="pfc-browser">
         <div class="pf-check-icon">🌐</div>
@@ -514,7 +510,6 @@ const MP_DELEGATE = isMobile ? 'CPU' : 'GPU';
 // CONFIG
 const CALIB_MS    = 20000;
 const MIN_SAMPLES = 30;
-const GAZE_ALPHA  = 0.18;
 const RIDGE_ALPHA = 0.01;
 const LEFT_IRIS   = [468,469,470,471];
 const RIGHT_IRIS  = [473,474,475,476];
@@ -541,7 +536,7 @@ let affineBias = {dx:0,dy:0,sx:1,sy:1};
 let calibStart=0, calibSoundPlayed=false;
 let calibPath=[], calibRaf=null, procRaf=null;
 let recordedFrames=[], totalF=0, trackedF=0;
-let sessionStart=0, timerInt=null, lastGaze=null;
+let sessionStart=0, timerInt=null, 
 let csvData=null;
 let calibFacePresent=false;
 let videoBlob=null;
@@ -595,16 +590,16 @@ function showScreen(n){
 //  to avoid flickering during small head movements.
 // ════════════════════════════════════════════════════════════
 function updateAllClear(bright, skinRatio){
-  const faceOk   = skinRatio > 0.06;
-  const distOk   = skinRatio > 0.06 && skinRatio <= 0.12;
-  const lightOk  = bright >= 60 && bright <= 220;
-  const allOk    = faceOk && distOk && lightOk;
+  // Read directly from pfState — no re-computation, single source of truth
+  const posOk   = pfState.face === 'pass';
+  const lightOk = pfState.light === 'pass';
+  const allOk   = posOk && lightOk;
 
   if(allOk){
     _badFrameStreak = 0;
     _goodFrameStreak = Math.min(_goodFrameStreak + 1, GOOD_STREAK_NEEDED + 1);
     if(_goodFrameStreak >= GOOD_STREAK_NEEDED && !_allclearShowing){
-      showAllClear(bright, skinRatio, faceOk, distOk, lightOk);
+      showAllClear(bright, skinRatio);
     }
   } else {
     _goodFrameStreak = 0;
@@ -615,19 +610,15 @@ function updateAllClear(bright, skinRatio){
   }
 }
 
-function showAllClear(bright, skinRatio, faceOk, distOk, lightOk){
+function showAllClear(bright, skinRatio){
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
-  const tags = [];
-  if(faceOk)  tags.push('✓ Face centred');
-  if(distOk)  tags.push(`✓ Good distance`);
-  if(lightOk) tags.push(`✓ Lighting OK`);
+  const tags = ['✓ Face visible · Good distance', '✓ Lighting OK'];
   document.getElementById('allclear-tags').innerHTML =
     tags.map(t=>`<span class="allclear-tag">${t}</span>`).join('');
   document.getElementById('allclear-detail').textContent =
     `Brightness ${Math.round(bright)}/255 · Skin ratio ${(skinRatio*100).toFixed(0)}%`;
   allclearBanner.classList.add('show');
-  // Play a soft chime
   playChime(660, 0.08, 0.4);
 }
 
@@ -639,7 +630,7 @@ function hideAllClear(){
 // ════════════════════════════════════════════════════════════
 //  PRE-FLIGHT — pixel analysis, runs during intake
 // ════════════════════════════════════════════════════════════
-const pfState={cam:'scanning',face:'scanning',light:'scanning',dist:'scanning',browser:'scanning'};
+const pfState={cam:'scanning',face:'scanning',light:'scanning',browser:'scanning'};
 let pfRaf=null;
 let _pfSamples=[], _pfThrottle=0;
 let _pfCanvas=null, _pfCtx=null;
@@ -668,18 +659,14 @@ function pfUpdateScore(){
   const tips=[];
   if(pfState.light==='fail')  tips.push('<strong>💡 Too dark:</strong> Add a front-facing lamp.');
   if(pfState.light==='warn')  tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
-  if(pfState.dist==='fail')   tips.push('<strong>📏 Distance:</strong> Move child to 50–70 cm from screen.');
-  if(pfState.dist==='warn')   tips.push('<strong>📏 Distance:</strong> Move child slightly closer.');
   if(pfState.face==='fail')   tips.push('<strong>👤 No face:</strong> Make sure child is in frame, camera at eye level.');
   if(pfState.browser==='warn')tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
   const adv=document.getElementById('pf-advice');
   if(adv){adv.innerHTML=tips.join('<br>');adv.className='pf-advice'+(tips.length?' show':'');}
+  // Button label only — enabled/disabled is managed solely by checkStartBtn
   const btn=document.getElementById('start-btn');
-  const critFails=['cam','face'].filter(k=>pfState[k]==='fail').length;
-  const pidOk=document.getElementById('f-pid').value.trim().length>0;
-  const groupOk=document.querySelector('input[name="group"]:checked')!==null;
-  if(pidOk&&groupOk){
-    btn.disabled=false;
+  if(!btn.disabled){
+    const critFails=['cam','face'].filter(k=>pfState[k]==='fail').length;
     if(critFails>0){btn.textContent='⚠️ Proceed Anyway';btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';}
     else if(done<total){btn.textContent='Begin Session →';btn.style.background='';}
     else if(score>=75){btn.textContent='✅ All Clear — Begin Session';btn.style.background='';}
@@ -716,16 +703,11 @@ function pfAnalyseFrame(){
     else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) — improve lighting`);
     else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) — reduce backlight`);
 
-    // Face
-    if(avgSkin>0.06)      pfSet('face','pass','✓ Face detected');
-    else if(avgSkin>0.03) pfSet('face','warn','⚠ Face partially visible — reposition');
-    else                  pfSet('face','fail','✗ No face — check camera position');
-
-    // Distance
-    if(avgSkin>0.12)      pfSet('dist','warn','⚠ Too close — move child back slightly');
-    else if(avgSkin>0.06) pfSet('dist','pass','✓ Good distance (~50–70 cm)');
-    else if(avgSkin>0.03) pfSet('dist','warn','⚠ Too far — move child closer');
-    else                  pfSet('dist','fail','✗ No face detected');
+    // Position & Distance — single unified check (face presence + distance in one)
+    if(avgSkin>0.12)      pfSet('face','warn','⚠ Too close — move child back ~10 cm');
+    else if(avgSkin>0.06) pfSet('face','pass','✓ Face visible · Good distance (~50–70 cm)');
+    else if(avgSkin>0.03) pfSet('face','warn','⚠ Too far or partially visible — move closer');
+    else                  pfSet('face','fail','✗ No face detected — check camera position');
 
     // ── Live all-clear update ──
     updateAllClear(avgBright, avgSkin);
@@ -772,7 +754,6 @@ async function initCamera(){
     pfSet('cam','fail','✗ Camera denied or not found');
     pfSet('face','fail','✗ No camera');
     pfSet('light','fail','✗ No camera');
-    pfSet('dist','fail','✗ No camera');
   }
 }
 
@@ -783,7 +764,7 @@ async function loadPreviewDetector(){
     const resolver=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
     previewFl=await FaceLandmarker.createFromOptions(resolver,{
       baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
-      runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:false,outputFacialTransformationMatrixes:false,outputIrisLandmarks:true
+      runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:false,outputFacialTransformationMatrixes:true,outputIrisLandmarks:true
     });
     previewLoop();
   }catch(e){}
@@ -924,11 +905,6 @@ function resizeCanvases(){
 // ════════════════════════════════════════════════════════════
 //  FEATURE EXTRACTION
 // ════════════════════════════════════════════════════════════
-let _diagDone=false;
-function diagFeatures(lm,mat){
-  if(_diagDone)return;_diagDone=true;
-}
-
 function extractFeatures(lm,mat){
   const avg=ids=>{const s={x:0,y:0,z:0};ids.forEach(i=>{s.x+=lm[i].x;s.y+=lm[i].y;s.z+=(lm[i].z||0);});return{x:s.x/ids.length,y:s.y/ids.length,z:s.z/ids.length};};
   const li=avg(LEFT_IRIS),ri=avg(RIGHT_IRIS);
@@ -1372,7 +1348,7 @@ document.getElementById('calib-start-btn').addEventListener('click',()=>{
 //  RECORDING
 // ════════════════════════════════════════════════════════════
 function startRecording(){
-  sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;lastGaze=null;
+  sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;
   timerInt=setInterval(()=>{
     const s=Math.floor((Date.now()-sessionStart)/1000);
     document.getElementById('h-timer').textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
@@ -1452,7 +1428,6 @@ function processingLoop(){
         if(gaze){
           trackedF++;
           recordedFrames.push({t:Date.now()-sessionStart,x:gaze.x,y:gaze.y,tracked:1,feat:features});
-          if(lastGaze){lastGaze.x=GAZE_ALPHA*gaze.x+(1-GAZE_ALPHA)*lastGaze.x;lastGaze.y=GAZE_ALPHA*gaze.y+(1-GAZE_ALPHA)*lastGaze.y;}else{lastGaze={...gaze};}
           gazeCtx.clearRect(0,0,gazeCanvas.width,gazeCanvas.height);
           document.getElementById('st-gaze').textContent='Tracking';document.getElementById('st-gaze').className='sv ok';
         }else{
@@ -1568,18 +1543,45 @@ async function uploadToDrive(csvText,filename){
     btn.style.opacity='1';
     btn.style.pointerEvents='auto';
   }catch(err){
-    console.error('[GazeTrack] Drive upload failed:',err);
-    driveSetStatus('\u274c','Drive failed — downloading locally instead','rgba(255,92,58,0.4)');
-    downloadCSV();
+    if(err.message&&err.message.startsWith('WRONG_ACCOUNT:')){
+      const used=err.message.split(':')[1];
+      driveSetStatus('\u26d4','Wrong account: '+used+' — must use '+AUTHORISED_EMAIL,'rgba(255,92,58,0.4)');
+      const btn=document.getElementById('btn-dl');
+      btn.textContent='\u21ba Retry Upload';btn.style.opacity='1';btn.style.pointerEvents='auto';
+      btn.onclick=()=>{ btn.textContent='\u23f3 Saving…';btn.style.opacity='.45';btn.style.pointerEvents='none'; uploadToDrive(csvData,btn._filename); };
+      btn._filename='gaze_'+META.pid+'_'+META.group+'_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';
+    } else {
+      driveSetStatus('\u274c','Drive failed — downloading locally instead','rgba(255,92,58,0.4)');
+      downloadCSV();
+    }
   }
 }
+
+// ── AUTHORISED ACCOUNT — change this line to update ──
+const AUTHORISED_EMAIL = 'aashna.v01@gmail.com';
 
 function getGoogleToken(){
   return new Promise((resolve,reject)=>{
     if(!window.google){reject(new Error('Google Identity Services not loaded'));return;}
     const client=window.google.accounts.oauth2.initTokenClient({
-      client_id:GDRIVE_CLIENT_ID,scope:GDRIVE_SCOPE,prompt:'',
-      callback:(resp)=>{if(resp.error){reject(new Error(resp.error));return;}resolve(resp.access_token);}
+      client_id:GDRIVE_CLIENT_ID,
+      scope:GDRIVE_SCOPE+' https://www.googleapis.com/auth/userinfo.email',
+      prompt:'',
+      hint:AUTHORISED_EMAIL,
+      callback:async (resp)=>{
+        if(resp.error){reject(new Error(resp.error));return;}
+        // Verify the signed-in account matches the authorised email
+        try{
+          const info=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',
+            {headers:{Authorization:'Bearer '+resp.access_token}});
+          const {email}=await info.json();
+          if(email.toLowerCase()!==AUTHORISED_EMAIL.toLowerCase()){
+            reject(new Error('WRONG_ACCOUNT:'+email));
+            return;
+          }
+        }catch(e){/* if check fails, allow through — better to save than lose data */}
+        resolve(resp.access_token);
+      }
     });
     client.requestAccessToken();
   });
