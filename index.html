@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<!-- Favicon added to prevent 404 error -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
 <title>GazeTrack — ASD Eye Tracking</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
@@ -29,9 +28,6 @@
 
 html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);font-family:var(--sans)}
 
-/* ════════════════════════════════════════
-   SCREEN SYSTEM
-════════════════════════════════════════ */
 .screen{
   position:fixed;inset:0;
   display:none;
@@ -41,9 +37,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 }
 .screen.active{display:flex}
 
-/* ════════════════════════════════════════
-   SCREEN 1 — INTAKE FORM
-════════════════════════════════════════ */
+/* ════════════ SCREEN 1 — INTAKE ════════════ */
 #s-intake{
   background:var(--ink);
   overflow-y:auto;
@@ -51,564 +45,95 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
   align-items:stretch;
   justify-content:flex-start;
 }
-
-.intake-wrap{
-  max-width:560px;
-  width:100%;
-  margin:0 auto;
-  display:flex;
-  flex-direction:column;
-  gap:0;
-}
-
-.intake-header{
-  padding:40px 0 36px;
-  border-bottom:1px solid var(--border);
-  margin-bottom:36px;
-}
-.intake-logo{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  margin-bottom:20px;
-}
-.logo-dot{
-  width:36px;height:36px;
-  border-radius:10px;
-  background:var(--accent);
-  display:flex;align-items:center;justify-content:center;
-  font-size:18px;
-  flex-shrink:0;
-}
-.logo-name{
-  font-size:20px;
-  font-weight:800;
-  letter-spacing:-.3px;
-}
+.intake-wrap{max-width:560px;width:100%;margin:0 auto;display:flex;flex-direction:column;gap:0;}
+.intake-header{padding:40px 0 36px;border-bottom:1px solid var(--border);margin-bottom:36px;}
+.intake-logo{display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+.logo-dot{width:36px;height:36px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.logo-name{font-size:20px;font-weight:800;letter-spacing:-.3px;}
 .logo-name span{color:var(--accent);}
-.intake-title{
-  font-size:clamp(28px,5vw,38px);
-  font-weight:800;
-  line-height:1.15;
-  color:#fff;
-  margin-bottom:10px;
-}
-.intake-sub{
-  font-size:14px;
-  color:var(--muted);
-  line-height:1.6;
-}
+.intake-title{font-size:clamp(28px,5vw,38px);font-weight:800;line-height:1.15;color:#fff;margin-bottom:10px;}
+.intake-sub{font-size:14px;color:var(--muted);line-height:1.6;}
 
-/* Camera preview card */
-.cam-card{
-  background:var(--ink2);
-  border:1px solid var(--border);
-  border-radius:16px;
-  overflow:hidden;
-  margin-bottom:28px;
-}
-.cam-preview-wrap{
-  position:relative;
-  aspect-ratio:4/3;
-  background:#000;
-  overflow:hidden;
-}
-#cam-preview{
-  width:100%;height:100%;
-  object-fit:cover;
-  transform:scaleX(-1);
-  display:block;
-}
-#cam-canvas{
-  position:absolute;inset:0;
-  width:100%;height:100%;
-  pointer-events:none;
-}
-.cam-badge{
-  position:absolute;top:12px;left:12px;
-  background:rgba(0,0,0,.7);
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:20px;
-  padding:5px 12px;
-  font-family:var(--mono);
-  font-size:11px;
-  color:rgba(255,255,255,.7);
-  display:flex;align-items:center;gap:6px;
-}
+/* Camera card */
+.cam-card{background:var(--ink2);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:28px;}
+.cam-preview-wrap{position:relative;aspect-ratio:4/3;background:#000;overflow:hidden;}
+#cam-preview{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block;}
+#cam-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+.cam-badge{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:5px 12px;font-family:var(--mono);font-size:11px;color:rgba(255,255,255,.7);display:flex;align-items:center;gap:6px;}
 .cam-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--warn);}
 .cam-badge-dot.ok{background:var(--accent);}
-.cam-info{
-  padding:14px 18px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  border-top:1px solid var(--border);
-}
-.cam-quality{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  font-size:13px;
-  color:var(--muted);
-}
-.quality-bar{
-  height:5px;width:80px;
-  background:var(--border);
-  border-radius:3px;
-  overflow:hidden;
-}
-.quality-fill{
-  height:100%;
-  background:var(--accent);
-  border-radius:3px;
-  width:0%;
-  transition:width .3s;
-}
-.cam-checklist{
-  display:flex;gap:8px;
-}
-.chk{
-  font-size:11px;
-  padding:3px 9px;
-  border-radius:20px;
-  background:rgba(255,92,58,.12);
-  color:var(--warn);
-  border:1px solid rgba(255,92,58,.2);
-  font-family:var(--mono);
-  transition:all .2s;
-}
-.chk.ok{
+.cam-info{padding:14px 18px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);}
+.cam-quality{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);}
+.quality-bar{height:5px;width:80px;background:var(--border);border-radius:3px;overflow:hidden;}
+.quality-fill{height:100%;background:var(--accent);border-radius:3px;width:0%;transition:width .3s;}
+.cam-checklist{display:flex;gap:8px;}
+.chk{font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(255,92,58,.12);color:var(--warn);border:1px solid rgba(255,92,58,.2);font-family:var(--mono);transition:all .2s;}
+.chk.ok{background:rgba(0,229,176,.1);color:var(--accent);border-color:rgba(0,229,176,.2);}
+
+/* ════ POSITION ALL-CLEAR BANNER ════ */
+/* Shows inline under the camera when position is corrected */
+#position-allclear{
+  display:none;
+  margin:0 18px 14px;
+  padding:12px 16px;
+  border-radius:10px;
   background:rgba(0,229,176,.1);
-  color:var(--accent);
-  border-color:rgba(0,229,176,.2);
+  border:1.5px solid rgba(0,229,176,.4);
+  align-items:center;
+  gap:12px;
+  animation:slideIn .35s cubic-bezier(.22,.68,0,1.2) both;
 }
+#position-allclear.show{display:flex;}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.allclear-icon{font-size:24px;flex-shrink:0;}
+.allclear-body{flex:1;}
+.allclear-title{font-size:13px;font-weight:800;color:var(--accent);margin-bottom:2px;}
+.allclear-sub{font-size:11px;color:var(--muted);font-family:var(--mono);}
+.allclear-checks{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.allclear-tag{font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(0,229,176,.15);color:var(--accent);font-family:var(--mono);border:1px solid rgba(0,229,176,.3);}
 
 /* Form */
-.form-section{
-  margin-bottom:28px;
-}
-.section-label{
-  font-size:11px;
-  font-weight:600;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-  color:var(--muted);
-  margin-bottom:14px;
-  font-family:var(--mono);
-}
+.form-section{margin-bottom:28px;}
+.section-label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:var(--mono);}
 .field{margin-bottom:16px;}
-.field label{
-  display:block;
-  font-size:13px;
-  font-weight:600;
-  color:var(--text);
-  margin-bottom:7px;
-}
+.field label{display:block;font-size:13px;font-weight:600;color:var(--text);margin-bottom:7px;}
 .field label .req{color:var(--accent);margin-left:2px;}
-
 .input-wrap{position:relative;}
-.input-wrap input,
-.input-wrap select{
-  width:100%;
-  background:var(--ink2);
-  border:1.5px solid var(--border);
-  border-radius:10px;
-  padding:12px 16px;
-  font-size:15px;
-  font-family:var(--sans);
-  color:var(--text);
-  outline:none;
-  transition:border-color .15s;
-  appearance:none;
-}
+.input-wrap input,.input-wrap select{width:100%;background:var(--ink2);border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;font-size:15px;font-family:var(--sans);color:var(--text);outline:none;transition:border-color .15s;appearance:none;}
 .input-wrap input::placeholder{color:var(--muted);}
-.input-wrap input:focus,
-.input-wrap select:focus{border-color:var(--accent);}
-.input-wrap select{
-  padding-right:40px;
-  cursor:pointer;
-}
-.select-arrow{
-  position:absolute;right:14px;top:50%;
-  transform:translateY(-50%);
-  pointer-events:none;
-  color:var(--muted);
-  font-size:12px;
-}
-
-/* Radio group */
-.radio-group{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:8px;
-}
-.radio-btn{
-  position:relative;
-  cursor:pointer;
-}
-.radio-btn input{
-  position:absolute;opacity:0;width:0;height:0;
-}
-.radio-face{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:6px;
-  padding:14px 10px;
-  background:var(--ink2);
-  border:1.5px solid var(--border);
-  border-radius:10px;
-  transition:all .15s;
-}
+.input-wrap input:focus,.input-wrap select:focus{border-color:var(--accent);}
+.input-wrap select{padding-right:40px;cursor:pointer;}
+.select-arrow{position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted);font-size:12px;}
+.radio-group{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.radio-btn{position:relative;cursor:pointer;}
+.radio-btn input{position:absolute;opacity:0;width:0;height:0;}
+.radio-face{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 10px;background:var(--ink2);border:1.5px solid var(--border);border-radius:10px;transition:all .15s;}
 .radio-face .emoji{font-size:22px;}
 .radio-face .label{font-size:13px;font-weight:600;}
 .radio-face .sub{font-size:11px;color:var(--muted);font-family:var(--mono);}
-.radio-btn input:checked + .radio-face{
-  border-color:var(--accent);
-  background:rgba(0,229,176,.07);
-}
+.radio-btn input:checked + .radio-face{border-color:var(--accent);background:rgba(0,229,176,.07);}
 .radio-btn input:checked + .radio-face .label{color:var(--accent);}
-
-/* Notes textarea */
-.notes-area{
-  width:100%;
-  background:var(--ink2);
-  border:1.5px solid var(--border);
-  border-radius:10px;
-  padding:12px 16px;
-  font-size:14px;
-  font-family:var(--sans);
-  color:var(--text);
-  outline:none;
-  resize:vertical;
-  min-height:80px;
-  transition:border-color .15s;
-}
+.notes-area{width:100%;background:var(--ink2);border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;font-size:14px;font-family:var(--sans);color:var(--text);outline:none;resize:vertical;min-height:80px;transition:border-color .15s;}
 .notes-area::placeholder{color:var(--muted);}
 .notes-area:focus{border-color:var(--accent);}
-
-/* Video section */
-.video-drop{
-  border:1.5px dashed var(--border);
-  border-radius:10px;
-  padding:20px;
-  text-align:center;
-  cursor:pointer;
-  transition:all .2s;
-  background:var(--ink2);
-}
+.video-drop{border:1.5px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;background:var(--ink2);}
 .video-drop:hover{border-color:var(--accent);background:rgba(0,229,176,.04);}
 .video-drop .icon{font-size:28px;margin-bottom:8px;}
 .video-drop .hint{font-size:13px;color:var(--muted);}
 .video-drop .chosen{font-size:13px;color:var(--accent);font-family:var(--mono);}
 #video-input{display:none;}
-
-/* Start button */
-.start-btn{
-  width:100%;
-  padding:18px;
-  border-radius:12px;
-  border:none;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  color:#000;
-  font-weight:800;
-  font-size:17px;
-  font-family:var(--sans);
-  cursor:pointer;
-  box-shadow:0 6px 28px rgba(0,229,176,.3);
-  transition:transform .15s,box-shadow .15s,opacity .15s;
-  letter-spacing:-.2px;
-  margin-top:8px;
-}
-.start-btn:hover:not(:disabled){
-  transform:translateY(-1px);
-  box-shadow:0 10px 36px rgba(0,229,176,.4);
-}
+.start-btn{width:100%;padding:18px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:800;font-size:17px;font-family:var(--sans);cursor:pointer;box-shadow:0 6px 28px rgba(0,229,176,.3);transition:transform .15s,box-shadow .15s,opacity .15s;letter-spacing:-.2px;margin-top:8px;}
+.start-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 10px 36px rgba(0,229,176,.4);}
 .start-btn:disabled{opacity:.45;cursor:not-allowed;}
 .start-btn .arrow{display:inline-block;margin-left:6px;transition:transform .15s;}
 .start-btn:hover:not(:disabled) .arrow{transform:translateX(4px);}
+.disclaimer{font-size:11px;color:var(--muted);text-align:center;line-height:1.6;margin-top:16px;padding-bottom:40px;}
 
-.disclaimer{
-  font-size:11px;
-  color:var(--muted);
-  text-align:center;
-  line-height:1.6;
-  margin-top:16px;
-  padding-bottom:40px;
-}
-
-/* ════════════════════════════════════════
-   SCREEN 2 — LOADING MEDIAPIPE
-════════════════════════════════════════ */
-#s-loading{
-  background:var(--ink);
-  gap:20px;
-}
-.load-ring{
-  width:56px;height:56px;
-  border-radius:50%;
-  border:3px solid var(--border);
-  border-top-color:var(--accent);
-  animation:spin .8s linear infinite;
-}
-@keyframes spin{to{transform:rotate(360deg)}}
-.load-msg{font-size:14px;color:var(--muted);font-family:var(--mono);}
-.load-title{font-size:22px;font-weight:700;color:#fff;}
-
-/* ════════════════════════════════════════
-   SCREEN 3 — CALIBRATION
-════════════════════════════════════════ */
-#s-calib{background:#0e1018;}
-
-/* Validation overlay — shown after calibration, before stimulus */
-#val-overlay{
-  display:none;
-  position:fixed;inset:0;
-  background:#0b0d14;
-  z-index:200;
-}
-#val-canvas{
-  position:fixed;inset:0;
-  width:100%;height:100%;
-  display:block;
-}
-#val-msg{
-  position:fixed;top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  text-align:center;
-  pointer-events:none;
-}
-#val-msg h3{font-size:22px;font-weight:800;color:#fff;margin-bottom:8px;}
-#val-msg p{font-size:14px;color:var(--muted);}
-#calib-canvas{
-  position:fixed;inset:0;
-  width:100%;height:100%;
-  display:block;
-}
-#calib-overlay{
-  position:fixed;inset:0;
-  display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  gap:20px;
-  z-index:10;
-  background:rgba(10,12,16,.88);
-  backdrop-filter:blur(6px);
-}
-.calib-card{
-  background:var(--ink2);
-  border:1px solid var(--border);
-  border-radius:20px;
-  padding:40px 48px;
-  max-width:440px;
-  text-align:center;
-  display:flex;flex-direction:column;gap:18px;
-}
-.calib-card h2{font-size:26px;font-weight:800;color:#fff;}
-.calib-card p{font-size:14px;color:var(--muted);line-height:1.7;}
-.calib-start-btn{
-  padding:15px 40px;
-  border-radius:50px;
-  border:none;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  color:#000;font-weight:800;font-size:16px;
-  font-family:var(--sans);cursor:pointer;
-  box-shadow:0 4px 20px rgba(0,229,176,.35);
-  transition:transform .15s;
-}
-.calib-start-btn:hover{transform:scale(1.04);}
-
-/* ════════════════════════════════════════
-   SCREEN 4 — STIMULUS + HUD
-════════════════════════════════════════ */
-#s-stimulus{
-  background:#000;
-  align-items:stretch;
-  justify-content:stretch;
-}
-#stim-video{
-  position:fixed;inset:0;
-  width:100%;height:100%;
-  object-fit:contain;
-  z-index:1;
-  background:#000;
-}
-/* Transparent canvas over video for gaze dot */
-#gaze-canvas{
-  position:fixed;inset:0;
-  width:100%;height:100%;
-  pointer-events:none;
-  z-index:2;
-  background:transparent;
-}
-/* HUD */
-#hud{
-  position:fixed;top:0;left:0;right:0;
-  height:48px;
-  background:rgba(11,13,17,.92);
-  backdrop-filter:blur(12px);
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;
-  justify-content:space-between;
-  padding:0 16px;
-  z-index:100;
-}
-.hud-l{display:flex;align-items:center;gap:14px;font-size:12px;}
-.hud-chip{display:flex;align-items:center;gap:5px;color:var(--muted);}
-.hud-chip b{color:var(--text);font-weight:700;}
-.rec-pulse{
-  width:7px;height:7px;border-radius:50%;
-  background:var(--warn);
-  animation:blink 1.3s infinite;
-}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.end-btn{
-  display:flex;align-items:center;gap:6px;
-  padding:6px 14px;border-radius:7px;
-  background:rgba(255,92,58,.1);
-  border:1px solid rgba(255,92,58,.25);
-  color:var(--warn);font-size:12px;font-weight:700;
-  cursor:pointer;font-family:var(--sans);
-  transition:background .15s;
-}
-.end-btn:hover{background:rgba(255,92,58,.2);}
-
-/* Stats panel */
-#stats{
-  position:fixed;top:48px;right:0;
-  width:170px;
-  background:rgba(11,13,17,.92);
-  border-left:1px solid var(--border);
-  padding:14px 12px;
-  z-index:90;
-  font-size:12px;
-}
-.sr{
-  display:flex;justify-content:space-between;
-  padding:6px 0;border-bottom:1px solid var(--border);
-}
-.sr:last-child{border:none;}
-.sl{color:var(--muted);}
-.sv{font-weight:700;font-family:var(--mono);}
-.ok{color:var(--accent);}
-.bad{color:var(--warn);}
-
-/* No video fallback */
-#no-video{
-  position:fixed;inset:0;
-  display:none;
-  flex-direction:column;
-  align-items:center;justify-content:center;
-  gap:16px;
-  background:#000;
-  z-index:5;
-  text-align:center;
-  padding:40px;
-}
-#no-video .big{font-size:52px;}
-#no-video p{color:var(--muted);font-size:14px;}
-.pick-btn{
-  padding:12px 28px;border-radius:10px;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  color:#000;font-weight:800;font-size:14px;
-  cursor:pointer;border:none;font-family:var(--sans);
-}
-#sound-btn{
-  position:fixed;bottom:70px;left:50%;transform:translateX(-50%);
-  background:rgba(0,0,0,.8);border:1px solid rgba(255,255,255,.15);
-  color:#fff;border-radius:25px;padding:11px 24px;
-  font-family:var(--sans);font-size:14px;font-weight:700;
-  cursor:pointer;z-index:10;display:none;
-  animation:fadeUp .4s ease both;
-}
-@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}}
-
-/* ════════════════════════════════════════
-   SCREEN 5 — DONE
-════════════════════════════════════════ */
-#s-done{
-  background:var(--ink);
-  gap:20px;
-  padding:40px;
-  text-align:center;
-}
-.done-icon{font-size:72px;animation:pop .5s cubic-bezier(.17,.67,.26,1.4) both;}
-@keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
-#s-done h2{font-size:30px;font-weight:800;color:#fff;}
-.done-stats{
-  display:flex;gap:16px;
-  margin:8px 0;
-  flex-wrap:wrap;
-  justify-content:center;
-}
-.done-stat{
-  background:var(--ink2);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:14px 22px;
-  text-align:center;
-  min-width:100px;
-}
-.done-stat .n{font-size:24px;font-weight:800;color:var(--accent);font-family:var(--mono);}
-.done-stat .l{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono);}
-.done-actions{display:flex;gap:12px;margin-top:8px;}
-.btn-dl{
-  padding:13px 30px;border-radius:12px;border:none;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  color:#000;font-weight:800;font-size:14px;
-  font-family:var(--sans);cursor:pointer;
-}
-.btn-restart{
-  padding:13px 30px;border-radius:12px;
-  background:var(--ink2);border:1px solid var(--border);
-  color:var(--text);font-weight:700;font-size:14px;
-  font-family:var(--sans);cursor:pointer;
-}
-
-/* ════════════════════════════════════════
-   DEBUG PANEL (press D)
-════════════════════════════════════════ */
-#debug-panel{
-  display:none;
-  position:fixed;bottom:60px;left:12px;
-  background:rgba(0,0,0,.9);
-  border:1px solid var(--accent);
-  border-radius:10px;
-  padding:12px 16px;
-  font-family:var(--mono);
-  font-size:11px;
-  color:#00ff88;
-  line-height:2;
-  z-index:9999;
-  min-width:280px;
-}
-#debug-panel .dbg-title{color:var(--accent);font-weight:600;margin-bottom:4px;}
-
-/* Hidden webcam */
-#webcam{position:fixed;width:1px;height:1px;opacity:0;top:0;left:0;}
-
-/* ════════════════════════════════════════
-   INLINE PRE-FLIGHT PANEL (inside intake)
-════════════════════════════════════════ */
-#preflight-panel{
-  margin-top:8px;
-  display:flex;
-  flex-direction:column;
-  gap:12px;
-}
-.pf-checks{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:8px;
-}
+/* Preflight */
+#preflight-panel{margin-top:8px;display:flex;flex-direction:column;gap:12px;}
+.pf-checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 @media(max-width:500px){.pf-checks{grid-template-columns:1fr;}}
-.pf-check{
-  background:var(--ink2);
-  border:1.5px solid var(--border);
-  border-radius:12px;
-  padding:12px 14px;
-  display:flex;align-items:flex-start;gap:10px;
-  transition:border-color .3s,background .3s;
-}
+.pf-check{background:var(--ink2);border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;align-items:flex-start;gap:10px;transition:border-color .3s,background .3s;}
 .pf-check.pass{border-color:rgba(0,229,176,.4);background:rgba(0,229,176,.05);}
 .pf-check.fail{border-color:rgba(255,92,58,.4);background:rgba(255,92,58,.05);}
 .pf-check.warn{border-color:rgba(240,192,64,.35);background:rgba(240,192,64,.04);}
@@ -619,46 +144,119 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .pf-check.pass .pf-check-status{color:var(--accent);}
 .pf-check.fail .pf-check-status{color:var(--warn);}
 .pf-check.warn .pf-check-status{color:var(--gold);}
-.pf-spin{
-  display:inline-block;width:10px;height:10px;
-  border:2px solid var(--border);border-top-color:var(--accent);
-  border-radius:50%;animation:spin .7s linear infinite;
-  vertical-align:middle;margin-right:3px;
-}
-.pf-score-row{
-  display:flex;align-items:center;gap:12px;
-  background:var(--ink2);border:1px solid var(--border);
-  border-radius:12px;padding:12px 16px;
-}
+.pf-spin{display:inline-block;width:10px;height:10px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:3px;}
+.pf-score-row{display:flex;align-items:center;gap:12px;background:var(--ink2);border:1px solid var(--border);border-radius:12px;padding:12px 16px;}
 .pf-score-label{font-size:12px;color:var(--muted);white-space:nowrap;font-family:var(--mono);}
 .pf-score-bar{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
 .pf-score-fill{height:100%;border-radius:3px;background:var(--warn);transition:width .4s,background .4s;width:0%;}
 .pf-score-pct{font-size:13px;font-weight:800;font-family:var(--mono);color:var(--text);white-space:nowrap;}
-.pf-advice{
-  background:rgba(255,92,58,.07);border:1px solid rgba(255,92,58,.2);
-  border-radius:10px;padding:12px 16px;font-size:12px;color:#ffb3a3;
-  line-height:1.6;display:none;
-}
+.pf-advice{background:rgba(255,92,58,.07);border:1px solid rgba(255,92,58,.2);border-radius:10px;padding:12px 16px;font-size:12px;color:#ffb3a3;line-height:1.6;display:none;}
 .pf-advice.show{display:block;}
 .pf-advice strong{color:var(--warn);}
 
-/* Drive upload status on done screen */
-#drive-status{
-  margin:4px 0 8px;padding:10px 20px;border-radius:10px;
-  font-size:13px;font-family:var(--mono);
-  background:var(--ink2);border:1px solid var(--border);
-  display:flex;align-items:center;gap:10px;
-  min-width:260px;justify-content:center;
+/* ════════════ SCREEN 2 — LOADING ════════════ */
+#s-loading{background:var(--ink);gap:20px;}
+.load-ring{width:56px;height:56px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-msg{font-size:14px;color:var(--muted);font-family:var(--mono);}
+.load-title{font-size:22px;font-weight:700;color:#fff;}
+
+/* ════════════ SCREEN 3 — CALIBRATION ════════════ */
+#s-calib{background:#0e1018;}
+#calib-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;}
+#calib-overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:10;background:rgba(10,12,16,.88);backdrop-filter:blur(6px);}
+.calib-card{background:var(--ink2);border:1px solid var(--border);border-radius:20px;padding:40px 48px;max-width:440px;text-align:center;display:flex;flex-direction:column;gap:18px;}
+.calib-card h2{font-size:26px;font-weight:800;color:#fff;}
+.calib-card p{font-size:14px;color:var(--muted);line-height:1.7;}
+.calib-start-btn{padding:15px 40px;border-radius:50px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:800;font-size:16px;font-family:var(--sans);cursor:pointer;box-shadow:0 4px 20px rgba(0,229,176,.35);transition:transform .15s;}
+.calib-start-btn:hover{transform:scale(1.04);}
+
+/* ════════════ VALIDATION OVERLAY — STAR APPROACH ════════════ */
+/* Full-screen dark overlay, child-friendly animated stars */
+#val-overlay{
+  display:none;
+  position:fixed;inset:0;
+  background:#0a0c14;
+  z-index:200;
+  overflow:hidden;
 }
+#val-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;}
+
+/* Friendly instruction card shown before each star appears */
+#val-instruction{
+  position:fixed;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  text-align:center;
+  pointer-events:none;
+  z-index:210;
+  transition:opacity .4s;
+}
+#val-instruction .val-emoji{font-size:72px;display:block;margin-bottom:16px;animation:bounce 1s ease-in-out infinite;}
+#val-instruction h3{font-size:28px;font-weight:800;color:#fff;margin-bottom:8px;}
+#val-instruction p{font-size:16px;color:var(--muted);}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* Star count badge */
+#val-badge{
+  position:fixed;top:24px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.1);
+  border-radius:40px;padding:8px 20px;
+  font-family:var(--mono);font-size:13px;color:rgba(255,255,255,.6);
+  z-index:220;display:none;
+}
+#val-badge span{color:#fff;font-weight:700;}
+
+/* ════════════ SCREEN 4 — STIMULUS ════════════ */
+#s-stimulus{background:#000;align-items:stretch;justify-content:stretch;}
+#stim-video{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;z-index:1;background:#000;}
+#gaze-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;background:transparent;}
+#hud{position:fixed;top:0;left:0;right:0;height:48px;background:rgba(11,13,17,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:100;}
+.hud-l{display:flex;align-items:center;gap:14px;font-size:12px;}
+.hud-chip{display:flex;align-items:center;gap:5px;color:var(--muted);}
+.hud-chip b{color:var(--text);font-weight:700;}
+.rec-pulse{width:7px;height:7px;border-radius:50%;background:var(--warn);animation:blink 1.3s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.end-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:7px;background:rgba(255,92,58,.1);border:1px solid rgba(255,92,58,.25);color:var(--warn);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--sans);transition:background .15s;}
+.end-btn:hover{background:rgba(255,92,58,.2);}
+#stats{position:fixed;top:48px;right:0;width:170px;background:rgba(11,13,17,.92);border-left:1px solid var(--border);padding:14px 12px;z-index:90;font-size:12px;}
+.sr{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);}
+.sr:last-child{border:none;}
+.sl{color:var(--muted);}
+.sv{font-weight:700;font-family:var(--mono);}
+.ok{color:var(--accent);}
+.bad{color:var(--warn);}
+#no-video{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#000;z-index:5;text-align:center;padding:40px;}
+#no-video .big{font-size:52px;}
+#no-video p{color:var(--muted);font-size:14px;}
+.pick-btn{padding:12px 28px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:800;font-size:14px;cursor:pointer;border:none;font-family:var(--sans);}
+#sound-btn{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:25px;padding:11px 24px;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;z-index:10;display:none;animation:fadeUp .4s ease both;}
+@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}}
+
+/* ════════════ SCREEN 5 — DONE ════════════ */
+#s-done{background:var(--ink);gap:20px;padding:40px;text-align:center;}
+.done-icon{font-size:72px;animation:pop .5s cubic-bezier(.17,.67,.26,1.4) both;}
+@keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+#s-done h2{font-size:30px;font-weight:800;color:#fff;}
+.done-stats{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap;justify-content:center;}
+.done-stat{background:var(--ink2);border:1px solid var(--border);border-radius:12px;padding:14px 22px;text-align:center;min-width:100px;}
+.done-stat .n{font-size:24px;font-weight:800;color:var(--accent);font-family:var(--mono);}
+.done-stat .l{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono);}
+.done-actions{display:flex;gap:12px;margin-top:8px;}
+.btn-dl{padding:13px 30px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:800;font-size:14px;font-family:var(--sans);cursor:pointer;}
+.btn-restart{padding:13px 30px;border-radius:12px;background:var(--ink2);border:1px solid var(--border);color:var(--text);font-weight:700;font-size:14px;font-family:var(--sans);cursor:pointer;}
+#drive-status{margin:4px 0 8px;padding:10px 20px;border-radius:10px;font-size:13px;font-family:var(--mono);background:var(--ink2);border:1px solid var(--border);display:flex;align-items:center;gap:10px;min-width:260px;justify-content:center;}
+
+/* Debug */
+#debug-panel{display:none;position:fixed;bottom:60px;left:12px;background:rgba(0,0,0,.9);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;font-family:var(--mono);font-size:11px;color:#00ff88;line-height:2;z-index:9999;min-width:280px;}
+#debug-panel .dbg-title{color:var(--accent);font-weight:600;margin-bottom:4px;}
+#webcam{position:fixed;width:1px;height:1px;opacity:0;top:0;left:0;}
 </style>
 </head>
 <body>
-
 <video id="webcam" autoplay playsinline muted></video>
 
-<!-- ══════════════════════════════════════
-     SCREEN 1: INTAKE FORM
-══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════ SCREEN 1: INTAKE ══════════════════════════════════════ -->
 <div id="s-intake" class="screen active">
 <div class="intake-wrap">
 
@@ -695,66 +293,54 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
     </div>
   </div>
 
+  <!-- ════ POSITION ALL-CLEAR BANNER — appears when child is repositioned correctly ════ -->
+  <div id="position-allclear">
+    <div class="allclear-icon">✅</div>
+    <div class="allclear-body">
+      <div class="allclear-title">Great position! Ready to go.</div>
+      <div class="allclear-sub" id="allclear-detail">Face centred · Good distance · Good lighting</div>
+      <div class="allclear-checks" id="allclear-tags"></div>
+    </div>
+  </div>
+
   <!-- Child info -->
   <div class="form-section">
     <div class="section-label">Child Information</div>
     <div class="field">
       <label>Participant ID <span class="req">*</span></label>
-      <div class="input-wrap">
-        <input type="text" id="f-pid" placeholder="e.g. CHILD_042" maxlength="40"/>
-      </div>
+      <div class="input-wrap"><input type="text" id="f-pid" placeholder="e.g. CHILD_042" maxlength="40"/></div>
     </div>
     <div class="field">
       <label>Age (years)</label>
-      <div class="input-wrap">
-        <input type="number" id="f-age" placeholder="e.g. 4" min="1" max="18"/>
-      </div>
+      <div class="input-wrap"><input type="number" id="f-age" placeholder="e.g. 4" min="1" max="18"/></div>
     </div>
     <div class="field">
       <label>Diagnosis Group <span class="req">*</span></label>
       <div class="radio-group">
-        <label class="radio-btn">
-          <input type="radio" name="group" value="ASD"/>
-          <div class="radio-face">
-            <div class="emoji">🔵</div>
-            <div class="label">ASD</div>
-            <div class="sub">Diagnosed ASD</div>
-          </div>
-        </label>
-        <label class="radio-btn">
-          <input type="radio" name="group" value="TD"/>
-          <div class="radio-face">
-            <div class="emoji">🟢</div>
-            <div class="label">TD</div>
-            <div class="sub">Typically developing</div>
-          </div>
-        </label>
+        <label class="radio-btn"><input type="radio" name="group" value="ASD"/>
+          <div class="radio-face"><div class="emoji">🔵</div><div class="label">ASD</div><div class="sub">Diagnosed ASD</div></div></label>
+        <label class="radio-btn"><input type="radio" name="group" value="TD"/>
+          <div class="radio-face"><div class="emoji">🟢</div><div class="label">TD</div><div class="sub">Typically developing</div></div></label>
       </div>
     </div>
   </div>
 
-  <!-- Session details -->
   <div class="form-section">
     <div class="section-label">Session Details</div>
     <div class="field">
       <label>Clinician / Researcher</label>
-      <div class="input-wrap">
-        <input type="text" id="f-clinician" placeholder="Your name"/>
-      </div>
+      <div class="input-wrap"><input type="text" id="f-clinician" placeholder="Your name"/></div>
     </div>
     <div class="field">
       <label>Session Location</label>
-      <div class="input-wrap">
-        <input type="text" id="f-location" placeholder="e.g. Lab Room 2"/>
-      </div>
+      <div class="input-wrap"><input type="text" id="f-location" placeholder="e.g. Lab Room 2"/></div>
     </div>
     <div class="field">
       <label>Notes (optional)</label>
-      <textarea class="notes-area" id="f-notes" placeholder="Any relevant observations, e.g. child was tired, wore glasses…"></textarea>
+      <textarea class="notes-area" id="f-notes" placeholder="Any relevant observations…"></textarea>
     </div>
   </div>
 
-  <!-- Stimulus video -->
   <div class="form-section">
     <div class="section-label">Stimulus Video</div>
     <div class="field">
@@ -767,52 +353,33 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
     </div>
   </div>
 
-  <button class="start-btn" id="start-btn" disabled>
-    Begin Session <span class="arrow">→</span>
-  </button>
+  <button class="start-btn" id="start-btn" disabled>Begin Session <span class="arrow">→</span></button>
 
-  <!-- ── INLINE PRE-FLIGHT CHECKS ── -->
+  <!-- Preflight -->
   <div id="preflight-panel">
     <div class="section-label" style="margin-bottom:6px;">🛫 Environment Check</div>
-
     <div class="pf-checks">
       <div class="pf-check scanning" id="pfc-cam">
         <div class="pf-check-icon">📷</div>
-        <div class="pf-check-body">
-          <div class="pf-check-name">Camera</div>
-          <div class="pf-check-status" id="pfc-cam-s"><span class="pf-spin"></span> Checking…</div>
-        </div>
+        <div class="pf-check-body"><div class="pf-check-name">Camera</div><div class="pf-check-status" id="pfc-cam-s"><span class="pf-spin"></span> Checking…</div></div>
       </div>
       <div class="pf-check scanning" id="pfc-face">
         <div class="pf-check-icon">👤</div>
-        <div class="pf-check-body">
-          <div class="pf-check-name">Face Detected</div>
-          <div class="pf-check-status" id="pfc-face-s"><span class="pf-spin"></span> Looking…</div>
-        </div>
+        <div class="pf-check-body"><div class="pf-check-name">Face Detected</div><div class="pf-check-status" id="pfc-face-s"><span class="pf-spin"></span> Looking…</div></div>
       </div>
       <div class="pf-check scanning" id="pfc-light">
         <div class="pf-check-icon">💡</div>
-        <div class="pf-check-body">
-          <div class="pf-check-name">Lighting</div>
-          <div class="pf-check-status" id="pfc-light-s"><span class="pf-spin"></span> Analysing…</div>
-        </div>
+        <div class="pf-check-body"><div class="pf-check-name">Lighting</div><div class="pf-check-status" id="pfc-light-s"><span class="pf-spin"></span> Analysing…</div></div>
       </div>
       <div class="pf-check scanning" id="pfc-dist">
         <div class="pf-check-icon">📏</div>
-        <div class="pf-check-body">
-          <div class="pf-check-name">Distance</div>
-          <div class="pf-check-status" id="pfc-dist-s"><span class="pf-spin"></span> Estimating…</div>
-        </div>
+        <div class="pf-check-body"><div class="pf-check-name">Distance</div><div class="pf-check-status" id="pfc-dist-s"><span class="pf-spin"></span> Estimating…</div></div>
       </div>
       <div class="pf-check scanning" id="pfc-browser">
         <div class="pf-check-icon">🌐</div>
-        <div class="pf-check-body">
-          <div class="pf-check-name">Browser</div>
-          <div class="pf-check-status" id="pfc-browser-s"><span class="pf-spin"></span> Checking…</div>
-        </div>
+        <div class="pf-check-body"><div class="pf-check-name">Browser</div><div class="pf-check-status" id="pfc-browser-s"><span class="pf-spin"></span> Checking…</div></div>
       </div>
     </div>
-
     <div class="pf-score-row">
       <span class="pf-score-label">Readiness</span>
       <div class="pf-score-bar"><div class="pf-score-fill" id="pf-score-fill"></div></div>
@@ -828,18 +395,14 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 </div>
 </div>
 
-<!-- ══════════════════════════════════════
-     SCREEN 2: LOADING
-══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════ SCREEN 2: LOADING ══════════════════════════════════════ -->
 <div id="s-loading" class="screen">
   <div class="load-ring"></div>
   <div class="load-title">Loading Eye Tracker</div>
   <div class="load-msg" id="load-msg">Initialising MediaPipe…</div>
 </div>
 
-<!-- ══════════════════════════════════════
-     SCREEN 3: CALIBRATION
-══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════ SCREEN 3: CALIBRATION ══════════════════════════════════════ -->
 <div id="s-calib" class="screen">
   <canvas id="calib-canvas"></canvas>
   <div id="calib-overlay">
@@ -848,39 +411,52 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
       <p style="color:#fff;font-size:16px;font-weight:700;margin-bottom:4px;">For parents:</p>
       <p>Sit your child in front of the screen so their face is clearly visible in the camera. Then press start and say:<br><br>
       <strong style="color:var(--accent);font-size:15px">"Watch the bunny — wherever it goes, follow it with your eyes!"</strong><br><br>
-      The bunny will hop around for about 20 seconds. If your child looks away, the bunny will wait and make a sound until they look back. You don't need to do anything else.</p>
+      The bunny will hop around for about 20 seconds. If your child looks away, the bunny will wait and make a sound until they look back.</p>
       <button class="calib-start-btn" id="calib-start-btn">🐰 &nbsp; Start — Follow the Bunny!</button>
     </div>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════
-     VALIDATION OVERLAY (shown after calibration)
-══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════ VALIDATION OVERLAY — STAR GAME ══════════════════════════════════════ -->
+<!--
+  DESIGN RATIONALE vs original dot approach:
+  ─────────────────────────────────────────
+  Original: 1200ms per dot, plain circle with arc timer — too fast and clinical for children.
+
+  New approach — "Catch the Star" game:
+  • Each star lives for 2800ms (2.3× longer) — enough for a 3-6 year old to locate and fixate
+  • Stars grow in from scale(0) with a springy bounce entrance (200ms) so the child's eye is
+    drawn to the motion naturally, then holds position for the dwell window
+  • A playful sparkle burst animates on arrival (canvas particles)
+  • A friendly sound (rising chime) plays when each star appears
+  • A large "⭐ Find the star!" prompt appears for 1.5s before the first star,
+    then a persistent badge shows "Star X of 5" so the parent knows progress
+  • Stars are larger (36px radius vs 18px) and use a warm gold colour — more visible
+  • Twinkling shimmer animation keeps the star engaging during the full dwell window
+  • Between stars there is a 600ms gap so the child's eye settles
+  ─────────────────────────────────────────
+-->
 <div id="val-overlay">
   <canvas id="val-canvas"></canvas>
-  <div id="val-msg">
-    <h3>🎯 Quick Check</h3>
-    <p>Look at each dot as it appears</p>
+  <div id="val-instruction">
+    <span class="val-emoji">⭐</span>
+    <h3>Find the Star!</h3>
+    <p>Look at each star as it appears</p>
   </div>
+  <div id="val-badge">Star <span id="val-badge-num">1</span> of <span id="val-badge-tot">5</span></div>
 </div>
 
-<!-- ══════════════════════════════════════
-     SCREEN 4: STIMULUS
-══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════ SCREEN 4: STIMULUS ══════════════════════════════════════ -->
 <div id="s-stimulus" class="screen">
   <video id="stim-video" playsinline muted></video>
   <canvas id="gaze-canvas"></canvas>
-
   <div id="no-video">
     <div class="big">🎬</div>
     <p>No stimulus video loaded.<br>Choose a file to continue.</p>
     <label class="pick-btn" for="stim-file-input">📂 Choose Video File</label>
     <input type="file" id="stim-file-input" accept="video/*" style="display:none"/>
   </div>
-
   <button id="sound-btn">🔊 Tap for Sound</button>
-
   <div id="hud">
     <div class="hud-l">
       <div class="hud-chip"><div class="rec-pulse"></div>&nbsp;<b id="h-timer">00:00</b></div>
@@ -890,7 +466,6 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
     </div>
     <button class="end-btn" id="end-btn">■ End</button>
   </div>
-
   <div id="stats">
     <div class="sr"><span class="sl">Face</span><span class="sv" id="st-face">—</span></div>
     <div class="sr"><span class="sl">Gaze</span><span class="sv" id="st-gaze">—</span></div>
@@ -900,9 +475,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
   </div>
 </div>
 
-<!-- ══════════════════════════════════════
-     SCREEN 5: DONE
-══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════ SCREEN 5: DONE ══════════════════════════════════════ -->
 <div id="s-done" class="screen">
   <div class="done-icon">🎉</div>
   <h2>Session Complete!</h2>
@@ -912,12 +485,11 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
     <span id="drive-msg">Connecting to Google Drive…</span>
   </div>
   <div class="done-actions">
-    <button class="btn-dl" id="btn-dl">⬇ Download CSV</button>
+    <button class="btn-dl" id="btn-dl" style="opacity:.45;pointer-events:none;cursor:not-allowed">⏳ Saving to Drive…</button>
     <button class="btn-restart" id="btn-restart">↺ New Session</button>
   </div>
 </div>
 
-<!-- Debug panel (press D) -->
 <div id="debug-panel">
   <div class="dbg-title">▶ FEATURE DEBUG (D to close)</div>
   <div id="d-vert">vert[2]: —</div>
@@ -931,22 +503,16 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 </div>
 
 <script type="module">
-console.log('%c GazeTrack v11 — unified form+preflight, lazy MediaPipe, CPU/GPU auto ', 'background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
+console.log('%c GazeTrack v12 — live position all-clear + child-friendly star validation ','background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
 
-// ─────────────────────────────────────────────
-// DEVICE DETECTION — CPU on tablet/mobile
-// ─────────────────────────────────────────────
 const isMobile = /Android|iPad|iPhone|iPod|Mobile/i.test(navigator.userAgent)
   || (navigator.maxTouchPoints > 1 && window.innerWidth < 1200);
 const MP_DELEGATE = isMobile ? 'CPU' : 'GPU';
 
-// ─────────────────────────────────────────────
 // CONFIG
-// ─────────────────────────────────────────────
 const CALIB_MS    = 20000;
-const CALIB_PAUSE = 2500;
 const MIN_SAMPLES = 30;
 const GAZE_ALPHA  = 0.18;
 const RIDGE_ALPHA = 0.01;
@@ -955,30 +521,42 @@ const RIGHT_IRIS  = [473,474,475,476];
 const L_CORNERS   = [33,133];
 const R_CORNERS   = [362,263];
 
-// ─────────────────────────────────────────────
+// ── STAR VALIDATION CONFIG ──
+// Longer dwell so children have time to locate and fixate each star
+const VAL_DWELL_MS    = 2800;   // was 1200ms — 2.3× longer
+const VAL_GAP_MS      = 600;    // pause between stars so eyes settle
+const VAL_STAR_RADIUS = 36;     // larger target (was 18px)
+const VAL_SAMPLE_START= 0.45;   // start collecting after 45% of dwell
+const VAL_INTRO_MS    = 2000;   // "Find the star!" shown before first star
+
 // STATE
-// ─────────────────────────────────────────────
 let phase = 'intake';
 let faceLandmarker = null;
 let camStream = null;
 let sessionStream = null;
 let gazeModel = null;
 let calibSamples = [];
-let valPoints=[], valIdx=0, valSamples=[], valRaf=null;
-let valDwellMs=1200, valStart=0;
+let valPoints=[], valIdx=0, valSamples=[], valRaf=null, valStart=0;
 let affineBias = {dx:0,dy:0,sx:1,sy:1};
-let calibStart=0, calibPausedAt=null, calibSoundPlayed=false;
+let calibStart=0, calibSoundPlayed=false;
 let calibPath=[], calibRaf=null, procRaf=null;
 let recordedFrames=[], totalF=0, trackedF=0;
 let sessionStart=0, timerInt=null, lastGaze=null;
-let csvData=null, gazeTrail=[];
+let csvData=null;
 let calibFacePresent=false;
 let videoBlob=null;
 let META={pid:'',age:'',group:'',clinician:'',location:'',notes:''};
 
-// ─────────────────────────────────────────────
+// ── POSITION ALL-CLEAR STATE ──
+// Tracks consecutive good-position frames to debounce noise
+let _goodFrameStreak    = 0;
+let _badFrameStreak     = 0;
+let _allclearShowing    = false;
+let _allclearHideTimer  = null;
+const GOOD_STREAK_NEEDED = 8;   // ~1.6s of stable good position before showing
+const BAD_STREAK_HIDE    = 12;  // ~2.4s of bad before hiding again
+
 // DOM
-// ─────────────────────────────────────────────
 const screens={
   intake:   document.getElementById('s-intake'),
   loading:  document.getElementById('s-loading'),
@@ -995,21 +573,76 @@ const gazeCanvas  = document.getElementById('gaze-canvas');
 const gazeCtx     = gazeCanvas.getContext('2d');
 const webcam      = document.getElementById('webcam');
 const stimVideo   = document.getElementById('stim-video');
+const allclearBanner = document.getElementById('position-allclear');
 
 function showScreen(n){
   Object.values(screens).forEach(s=>s.classList.remove('active'));
   screens[n].classList.add('active');
 }
 
-// ─────────────────────────────────────────────
-// PRE-FLIGHT — lightweight, runs in background
-// Uses only canvas pixel analysis — zero CPU cost, fully live
-// NO MediaPipe during pre-flight — zero CPU cost
-// MediaPipe loads only when Begin Session clicked
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  POSITION ALL-CLEAR LOGIC
+//  ─────────────────────────────────────────────────────────
+//  Runs every preflight frame. Requires that:
+//   • face is detected (skinRatio good)
+//   • distance is correct (skinRatio in good band)
+//   • lighting is good (brightness in range)
+//   • all three were true for GOOD_STREAK_NEEDED consecutive frames
+//
+//  When the banner appears it also announces specific checks that
+//  passed so the parent knows exactly what improved.
+//  When position degrades again it hides after BAD_STREAK_HIDE frames
+//  to avoid flickering during small head movements.
+// ════════════════════════════════════════════════════════════
+function updateAllClear(bright, skinRatio){
+  const faceOk   = skinRatio > 0.06;
+  const distOk   = skinRatio > 0.06 && skinRatio <= 0.12;
+  const lightOk  = bright >= 60 && bright <= 220;
+  const allOk    = faceOk && distOk && lightOk;
+
+  if(allOk){
+    _badFrameStreak = 0;
+    _goodFrameStreak = Math.min(_goodFrameStreak + 1, GOOD_STREAK_NEEDED + 1);
+    if(_goodFrameStreak >= GOOD_STREAK_NEEDED && !_allclearShowing){
+      showAllClear(bright, skinRatio, faceOk, distOk, lightOk);
+    }
+  } else {
+    _goodFrameStreak = 0;
+    _badFrameStreak = Math.min(_badFrameStreak + 1, BAD_STREAK_HIDE + 1);
+    if(_badFrameStreak >= BAD_STREAK_HIDE && _allclearShowing){
+      hideAllClear();
+    }
+  }
+}
+
+function showAllClear(bright, skinRatio, faceOk, distOk, lightOk){
+  _allclearShowing = true;
+  clearTimeout(_allclearHideTimer);
+  const tags = [];
+  if(faceOk)  tags.push('✓ Face centred');
+  if(distOk)  tags.push(`✓ Good distance`);
+  if(lightOk) tags.push(`✓ Lighting OK`);
+  document.getElementById('allclear-tags').innerHTML =
+    tags.map(t=>`<span class="allclear-tag">${t}</span>`).join('');
+  document.getElementById('allclear-detail').textContent =
+    `Brightness ${Math.round(bright)}/255 · Skin ratio ${(skinRatio*100).toFixed(0)}%`;
+  allclearBanner.classList.add('show');
+  // Play a soft chime
+  playChime(660, 0.08, 0.4);
+}
+
+function hideAllClear(){
+  _allclearShowing = false;
+  allclearBanner.classList.remove('show');
+}
+
+// ════════════════════════════════════════════════════════════
+//  PRE-FLIGHT — pixel analysis, runs during intake
+// ════════════════════════════════════════════════════════════
 const pfState={cam:'scanning',face:'scanning',light:'scanning',dist:'scanning',browser:'scanning'};
-let pfRaf=null, pfVideoTs=-1;
-let _pfSamples=[], pfLastScoreUpdate=0;
+let pfRaf=null;
+let _pfSamples=[], _pfThrottle=0;
+let _pfCanvas=null, _pfCtx=null;
 
 function pfSet(id,state,msg){
   pfState[id]=state;
@@ -1032,8 +665,6 @@ function pfUpdateScore(){
   const pct=document.getElementById('pf-score-pct');
   if(fill){fill.style.width=score+'%';fill.style.background=score>=75?'var(--accent)':score>=50?'var(--gold)':'var(--warn)';}
   if(pct) pct.textContent=done===total?score+'%':'…';
-
-  // Advice
   const tips=[];
   if(pfState.light==='fail')  tips.push('<strong>💡 Too dark:</strong> Add a front-facing lamp.');
   if(pfState.light==='warn')  tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
@@ -1043,43 +674,26 @@ function pfUpdateScore(){
   if(pfState.browser==='warn')tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
   const adv=document.getElementById('pf-advice');
   if(adv){adv.innerHTML=tips.join('<br>');adv.className='pf-advice'+(tips.length?' show':'');}
-
-  // Update start button label based on readiness
   const btn=document.getElementById('start-btn');
   const critFails=['cam','face'].filter(k=>pfState[k]==='fail').length;
   const pidOk=document.getElementById('f-pid').value.trim().length>0;
   const groupOk=document.querySelector('input[name="group"]:checked')!==null;
   if(pidOk&&groupOk){
     btn.disabled=false;
-    if(critFails>0){
-      btn.textContent='⚠️ Proceed Anyway';
-      btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';
-    } else if(done<total){
-      btn.textContent='Begin Session →';
-      btn.style.background='';
-    } else if(score>=75){
-      btn.textContent='✅ All Clear — Begin Session';
-      btn.style.background='';
-    } else {
-      btn.textContent='⚠️ Proceed with Warnings';
-      btn.style.background='linear-gradient(135deg,var(--gold),#c9a800)';
-    }
+    if(critFails>0){btn.textContent='⚠️ Proceed Anyway';btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';}
+    else if(done<total){btn.textContent='Begin Session →';btn.style.background='';}
+    else if(score>=75){btn.textContent='✅ All Clear — Begin Session';btn.style.background='';}
+    else{btn.textContent='⚠️ Proceed with Warnings';btn.style.background='linear-gradient(135deg,var(--gold),#c9a800)';}
   }
 }
 
-// Lightweight pixel-based checks — fully live, updates every 200ms as child moves
-let _pfCanvas=null, _pfCtx=null, _pfThrottle=0;
 function pfAnalyseFrame(){
-  if(phase!=='intake')return;
+  if(phase!=='intake'){return;}
   const now=performance.now();
   if(now-_pfThrottle<200){pfRaf=requestAnimationFrame(pfAnalyseFrame);return;}
   _pfThrottle=now;
   if(!camPreview||camPreview.readyState<2){pfRaf=requestAnimationFrame(pfAnalyseFrame);return;}
-  if(!_pfCanvas){
-    _pfCanvas=document.createElement('canvas');
-    _pfCanvas.width=80;_pfCanvas.height=60;
-    _pfCtx=_pfCanvas.getContext('2d',{willReadFrequently:true});
-  }
+  if(!_pfCanvas){_pfCanvas=document.createElement('canvas');_pfCanvas.width=80;_pfCanvas.height=60;_pfCtx=_pfCanvas.getContext('2d',{willReadFrequently:true});}
   try{
     _pfCtx.drawImage(camPreview,0,0,80,60);
     const d=_pfCtx.getImageData(0,0,80,60).data;
@@ -1091,25 +705,31 @@ function pfAnalyseFrame(){
     }
     const brightness=(sumR+sumG+sumB)/(n*3);
     const skinRatio=skinPx/n;
-    // Rolling average over 5 frames (~1s) for stability
     _pfSamples.push({brightness,skinRatio});
     if(_pfSamples.length>5) _pfSamples.shift();
     const avgBright=_pfSamples.reduce((a,b)=>a+b.brightness,0)/_pfSamples.length;
     const avgSkin=_pfSamples.reduce((a,b)=>a+b.skinRatio,0)/_pfSamples.length;
-    // ── Lighting — live ──
+
+    // Lighting
     if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`✓ Good (${Math.round(avgBright)}/255)`);
     else if(avgBright<40)                pfSet('light','fail',`✗ Too dark (${Math.round(avgBright)}) — add light`);
     else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) — improve lighting`);
     else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) — reduce backlight`);
-    // ── Face — live ──
+
+    // Face
     if(avgSkin>0.06)      pfSet('face','pass','✓ Face detected');
     else if(avgSkin>0.03) pfSet('face','warn','⚠ Face partially visible — reposition');
     else                  pfSet('face','fail','✗ No face — check camera position');
-    // ── Distance — live, updates as child moves ──
+
+    // Distance
     if(avgSkin>0.12)      pfSet('dist','warn','⚠ Too close — move child back slightly');
     else if(avgSkin>0.06) pfSet('dist','pass','✓ Good distance (~50–70 cm)');
     else if(avgSkin>0.03) pfSet('dist','warn','⚠ Too far — move child closer');
     else                  pfSet('dist','fail','✗ No face detected');
+
+    // ── Live all-clear update ──
+    updateAllClear(avgBright, avgSkin);
+
   }catch(e){}
   pfRaf=requestAnimationFrame(pfAnalyseFrame);
 }
@@ -1125,9 +745,9 @@ function pfCheckBrowser(){
   else               pfSet('browser','warn','⚠ Use Chrome for best results');
 }
 
-// ─────────────────────────────────────────────
-// CAMERA INIT — opens once, shared everywhere
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  CAMERA INIT
+// ════════════════════════════════════════════════════════════
 async function initCamera(){
   try{
     const stream=await navigator.mediaDevices.getUserMedia({
@@ -1140,11 +760,9 @@ async function initCamera(){
     document.getElementById('cam-status-txt').textContent='Camera active';
     document.getElementById('chk-cam').classList.add('ok');
     document.getElementById('chk-cam').textContent='✓ Cam';
-
     const t=stream.getVideoTracks()[0].getSettings();
     const w=t.width||640, h=t.height||480;
     pfSet('cam','pass',`✓ ${w}×${h}`);
-
     checkStartBtn();
     pfRaf=requestAnimationFrame(pfAnalyseFrame);
     pfCheckBrowser();
@@ -1158,39 +776,24 @@ async function initCamera(){
   }
 }
 
-// ─────────────────────────────────────────────
-// PREVIEW MESH — loads MediaPipe LITE in bg
-// Only for drawing eye contours on cam preview
-// Throttled to 8fps — very light
-// ─────────────────────────────────────────────
-let previewFl=null, previewRaf=null, lastPreviewTs=-1;
-
+// Preview mesh
+let previewFl=null, previewRaf=null, lastPreviewTs=-1, _prevLastRun=0;
 async function loadPreviewDetector(){
   try{
-    const resolver=await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
-    );
+    const resolver=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
     previewFl=await FaceLandmarker.createFromOptions(resolver,{
-      baseOptions:{
-        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate:MP_DELEGATE
-      },
-      runningMode:'VIDEO',numFaces:1,
-      outputFaceBlendshapes:false,
-      outputFacialTransformationMatrixes:false,
-      outputIrisLandmarks:true
+      baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
+      runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:false,outputFacialTransformationMatrixes:false,outputIrisLandmarks:true
     });
     previewLoop();
-  }catch(e){/* silent — pixel checks already running */}
+  }catch(e){}
 }
 
-let _prevLastRun=0;
 function previewLoop(){
   if(phase!=='intake'){return;}
   const now=performance.now();
-  if(now-_prevLastRun<125){previewRaf=requestAnimationFrame(previewLoop);return;} // 8fps max
+  if(now-_prevLastRun<125){previewRaf=requestAnimationFrame(previewLoop);return;}
   _prevLastRun=now;
-
   if(camPreview.readyState>=2&&previewFl){
     const rect=camCanvas.getBoundingClientRect();
     const dW=Math.round(rect.width)||640, dH=Math.round(rect.height)||480;
@@ -1203,10 +806,10 @@ function previewLoop(){
       const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
       camCtx.clearRect(0,0,camCanvas.width,camCanvas.height);
       if(hasFace){
+        drawPreviewMesh(res.faceLandmarks[0]);
         const lm=res.faceLandmarks[0];
-        drawPreviewMesh(lm);
         const hasIris=!!(lm[468]&&lm[473]);
-        document.getElementById('chk-face').classList.toggle('ok',true);
+        document.getElementById('chk-face').classList.add('ok');
         document.getElementById('chk-face').textContent='✓ Face';
         document.getElementById('chk-iris').classList.toggle('ok',hasIris);
         document.getElementById('chk-iris').textContent=hasIris?'✓ Iris':'👁 Iris';
@@ -1221,12 +824,9 @@ function previewLoop(){
         document.getElementById('q-fill').style.width=qPct+'%';
         document.getElementById('q-pct').textContent=qPct+'%';
       }else{
-        document.getElementById('chk-face').classList.remove('ok');
-        document.getElementById('chk-face').textContent='👤 Face';
-        document.getElementById('chk-iris').classList.remove('ok');
-        document.getElementById('chk-iris').textContent='👁 Iris';
-        document.getElementById('q-fill').style.width='0%';
-        document.getElementById('q-pct').textContent='—';
+        document.getElementById('chk-face').classList.remove('ok');document.getElementById('chk-face').textContent='👤 Face';
+        document.getElementById('chk-iris').classList.remove('ok');document.getElementById('chk-iris').textContent='👁 Iris';
+        document.getElementById('q-fill').style.width='0%';document.getElementById('q-pct').textContent='—';
       }
     }catch(e){}
   }
@@ -1236,25 +836,22 @@ function previewLoop(){
 function drawPreviewMesh(lm){
   const W=camCanvas.width,H=camCanvas.height;
   const fx=x=>(1-x)*W, fy=y=>y*H;
-  [[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33],
-   [362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362]].forEach(pts=>{
-    camCtx.beginPath();
-    pts.forEach((idx,i)=>{const p=lm[idx];i===0?camCtx.moveTo(fx(p.x),fy(p.y)):camCtx.lineTo(fx(p.x),fy(p.y));});
+  [[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33],[362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362]].forEach(pts=>{
+    camCtx.beginPath();pts.forEach((idx,i)=>{const p=lm[idx];i===0?camCtx.moveTo(fx(p.x),fy(p.y)):camCtx.lineTo(fx(p.x),fy(p.y));});
     camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=1.5;camCtx.globalAlpha=0.7;camCtx.stroke();camCtx.globalAlpha=1;
   });
   [[468,469],[473,474]].forEach(([c,e])=>{
     if(!lm[c]||!lm[e])return;
     const cx=fx(lm[c].x),cy=fy(lm[c].y),ex2=fx(lm[e].x),ey2=fy(lm[e].y);
     const r=Math.hypot(ex2-cx,ey2-cy)+1;
-    camCtx.beginPath();camCtx.arc(cx,cy,r,0,Math.PI*2);
-    camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=2;camCtx.globalAlpha=0.9;camCtx.stroke();camCtx.globalAlpha=1;
+    camCtx.beginPath();camCtx.arc(cx,cy,r,0,Math.PI*2);camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=2;camCtx.globalAlpha=0.9;camCtx.stroke();camCtx.globalAlpha=1;
     camCtx.beginPath();camCtx.arc(cx,cy,2,0,Math.PI*2);camCtx.fillStyle='#00e5b0';camCtx.fill();
   });
 }
 
-// ─────────────────────────────────────────────
-// FORM VALIDATION
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  FORM
+// ════════════════════════════════════════════════════════════
 function checkStartBtn(){
   const pidOk=document.getElementById('f-pid').value.trim().length>0;
   const groupOk=document.querySelector('input[name="group"]:checked')!==null;
@@ -1272,9 +869,6 @@ document.getElementById('video-input').addEventListener('change',e=>{
   document.getElementById('video-drop').insertAdjacentHTML('beforeend',`<div class="chosen">✓ ${f.name}</div>`);
 });
 
-// ─────────────────────────────────────────────
-// START SESSION — MediaPipe loads HERE, not before
-// ─────────────────────────────────────────────
 document.getElementById('start-btn').addEventListener('click',()=>{
   META.pid=document.getElementById('f-pid').value.trim();
   META.age=document.getElementById('f-age').value;
@@ -1291,41 +885,24 @@ document.getElementById('start-btn').addEventListener('click',()=>{
 
 initCamera();
 
-// ─────────────────────────────────────────────
-// BEGIN SESSION — loads full MediaPipe model
-// Reuses camera stream, or reuses previewFl if ready
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  SESSION START
+// ════════════════════════════════════════════════════════════
 async function beginSession(){
   try{
     if(previewFl){
-      // Reuse already-loaded detector — instant, zero reload
       faceLandmarker=previewFl;
       document.getElementById('load-msg').textContent='Model ready — starting camera…';
     }else{
       document.getElementById('load-msg').textContent='Loading eye tracking model…';
-      const resolver=await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
-      );
+      const resolver=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
       faceLandmarker=await FaceLandmarker.createFromOptions(resolver,{
-        baseOptions:{
-          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          delegate:MP_DELEGATE
-        },
-        runningMode:'VIDEO',numFaces:1,
-        outputFaceBlendshapes:false,
-        outputFacialTransformationMatrixes:true,
-        outputIrisLandmarks:true
+        baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
+        runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:false,outputFacialTransformationMatrixes:true,outputIrisLandmarks:true
       });
     }
-
-    // Reuse camera stream from intake — no re-open
-    if(camStream){
-      sessionStream=camStream; camStream=null;
-    }else{
-      sessionStream=await navigator.mediaDevices.getUserMedia({
-        video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false
-      });
-    }
+    if(camStream){sessionStream=camStream;camStream=null;}
+    else{sessionStream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});}
     webcam.srcObject=sessionStream;
     await new Promise(r=>{webcam.onloadedmetadata=()=>{webcam.play();r();};});
     resizeCanvases();
@@ -1344,17 +921,12 @@ function resizeCanvases(){
   calibCanvas.height=gazeCanvas.height=window.innerHeight;
 }
 
-// ─────────────────────────────────────────────
-// FEATURE EXTRACTION
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  FEATURE EXTRACTION
+// ════════════════════════════════════════════════════════════
 let _diagDone=false;
 function diagFeatures(lm,mat){
   if(_diagDone)return;_diagDone=true;
-  const nose=lm[1],fore=lm[10],chin=lm[152];
-  console.group('%c FEATURE DIAGNOSTIC','background:#ff5c3a;color:#fff;font-weight:bold');
-  console.log('nose.z:',nose.z?.toFixed(6));
-  if(mat?.data){const m=mat.data;console.log('Matrix pitch:',( Math.asin(Math.max(-1,Math.min(1,-m[6])))*180/Math.PI).toFixed(2)+'°');}
-  console.groupEnd();
 }
 
 function extractFeatures(lm,mat){
@@ -1381,9 +953,9 @@ function extractFeatures(lm,mat){
   return[liX,riX,vertMain,foreheadY,irisY,(li.y+ri.y)/2,avgX,ear,iod];
 }
 
-// ─────────────────────────────────────────────
-// RIDGE REGRESSION
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  RIDGE REGRESSION
+// ════════════════════════════════════════════════════════════
 function poly(f){return[1,...f.slice(0,7)];}
 function ridgeFit(X,y,alpha=RIDGE_ALPHA){
   const n=X[0].length;
@@ -1416,9 +988,9 @@ function predictGaze(feat,model){
   return{x:Math.max(0,Math.min(window.innerWidth,cx)),y:Math.max(0,Math.min(window.innerHeight,cy))};
 }
 
-// ─────────────────────────────────────────────
-// AFFINE BIAS CORRECTION
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  AFFINE BIAS
+// ════════════════════════════════════════════════════════════
 function computeAffineCorrection(pairs){
   function linfit(ps,ts){
     const n=ps.length,mp=ps.reduce((a,b)=>a+b,0)/n,mt=ts.reduce((a,b)=>a+b,0)/n;
@@ -1433,9 +1005,9 @@ function computeAffineCorrection(pairs){
   return{sx:fx.s,dx:fx.d,sy:fy.s,dy:fy.d};
 }
 
-// ─────────────────────────────────────────────
-// CALIBRATION PATH
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  CALIBRATION
+// ════════════════════════════════════════════════════════════
 function buildCalibPath(){
   const W=window.innerWidth,H=window.innerHeight;
   const mx=W/2,my=H/2,px=W*.08,py=H*.08;
@@ -1450,16 +1022,12 @@ function buildCalibPath(){
   return pts.slice(0,totalSteps);
 }
 
-// ─────────────────────────────────────────────
-// CALIBRATION ANIMATION (bunny)
-// ─────────────────────────────────────────────
-const BCOLOURS=[['#FF6B6B','#FF9E9E'],['#4ECDC4','#7EDDD7'],['#45B7D1','#72CBE0'],['#96CEB4','#B4DEC9'],['#FFEAA7','#FFF3C4'],['#DDA0DD','#EEC0EE'],['#FF9F43','#FFBE76']];
+const CAT_COLS=[{body:'#F8D7E3',stripe:'#E8A0B8'},{body:'#D7EAF8',stripe:'#90BDE0'},{body:'#E8D7F8',stripe:'#C090E0'},{body:'#D7F8E3',stripe:'#80D4A0'},{body:'#F8F0D7',stripe:'#E0C878'},{body:'#F8D7D7',stripe:'#E09090'}];
 let bci=0,bct=0;
-const CAT_COLS=[{body:'#F8D7E3',stripe:'#E8A0B8',belly:'#fff'},{body:'#D7EAF8',stripe:'#90BDE0',belly:'#fff'},{body:'#E8D7F8',stripe:'#C090E0',belly:'#fff'},{body:'#D7F8E3',stripe:'#80D4A0',belly:'#fff'},{body:'#F8F0D7',stripe:'#E0C878',belly:'#fff'},{body:'#F8D7D7',stripe:'#E09090',belly:'#fff'}];
 
 function drawCat(x,y,t,happy){
-  const ctx=calibCtx,r=36,bob=Math.sin(t*4)*5,squish=happy?1:0.92,cy=y+bob;
-  const{body,stripe,belly}=CAT_COLS[bci];
+  const ctx=calibCtx,r=36,bob=Math.sin(t*4)*5,cy=y+bob;
+  const{body,stripe}=CAT_COLS[bci];
   ctx.save();ctx.globalAlpha=0.13;ctx.beginPath();ctx.ellipse(x,cy+r+4,r*0.85,r*0.22,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
   [[-r*0.42,-r*1.1],[r*0.42,-r*1.1]].forEach(([dx])=>{
     const ex=x+dx,ey=cy-r;
@@ -1468,10 +1036,8 @@ function drawCat(x,y,t,happy){
     ctx.beginPath();ctx.ellipse(0,-r*0.72,6,r*0.55,0,0,Math.PI*2);ctx.fillStyle=stripe;ctx.fill();
     ctx.restore();
   });
-  ctx.save();ctx.scale(1,squish);
-  ctx.beginPath();ctx.arc(x,cy/squish,r,0,Math.PI*2);ctx.fillStyle=body;ctx.fill();
-  ctx.beginPath();ctx.ellipse(x,(cy+r*0.15)/squish,r*0.6,r*0.45,0,0,Math.PI*2);ctx.fillStyle=belly;ctx.globalAlpha=0.7;ctx.fill();ctx.globalAlpha=1;
-  ctx.restore();
+  ctx.beginPath();ctx.arc(x,cy,r,0,Math.PI*2);ctx.fillStyle=body;ctx.fill();
+  ctx.beginPath();ctx.ellipse(x,cy+r*0.15,r*0.6,r*0.45,0,0,Math.PI*2);ctx.fillStyle='#fff';ctx.globalAlpha=0.7;ctx.fill();ctx.globalAlpha=1;
   if(happy){
     ctx.beginPath();ctx.arc(x-r*0.28,cy-r*0.15,3,0,Math.PI*2);ctx.fillStyle='#1a1a2e';ctx.fill();
     ctx.beginPath();ctx.arc(x+r*0.28,cy-r*0.15,3,0,Math.PI*2);ctx.fill();
@@ -1481,10 +1047,33 @@ function drawCat(x,y,t,happy){
     ctx.beginPath();ctx.arc(x+r*0.28,cy-r*0.1,3,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.arc(x,cy+r*0.25,r*0.18,Math.PI,0);ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2;ctx.stroke();
   }
-  ctx.beginPath();ctx.moveTo(x-r*0.35,cy+r*0.05);ctx.lineTo(x-r*0.75,cy-r*0.1);ctx.moveTo(x-r*0.35,cy+r*0.15);ctx.lineTo(x-r*0.75,cy+r*0.15);ctx.moveTo(x+r*0.35,cy+r*0.05);ctx.lineTo(x+r*0.75,cy-r*0.1);ctx.moveTo(x+r*0.35,cy+r*0.15);ctx.lineTo(x+r*0.75,cy+r*0.15);ctx.strokeStyle=stripe;ctx.lineWidth=1.5;ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x-r*0.35,cy+r*0.05);ctx.lineTo(x-r*0.75,cy-r*0.1);
+  ctx.moveTo(x-r*0.35,cy+r*0.15);ctx.lineTo(x-r*0.75,cy+r*0.15);
+  ctx.moveTo(x+r*0.35,cy+r*0.05);ctx.lineTo(x+r*0.75,cy-r*0.1);
+  ctx.moveTo(x+r*0.35,cy+r*0.15);ctx.lineTo(x+r*0.75,cy+r*0.15);
+  ctx.strokeStyle=stripe;ctx.lineWidth=1.5;ctx.stroke();
 }
 
-const calibSound=(()=>{try{const a=new AudioContext();return()=>{const o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(0,a.currentTime);g.gain.linearRampToValueAtTime(0.15,a.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);o.start();o.stop(a.currentTime+0.3);};}catch(e){return()=>{};}})();
+// ── Shared audio context ──
+let _audioCtx=null;
+function getAudioCtx(){if(!_audioCtx){try{_audioCtx=new AudioContext();}catch(e){}}return _audioCtx;}
+
+const calibSound=(()=>{return()=>{const a=getAudioCtx();if(!a)return;const o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(0,a.currentTime);g.gain.linearRampToValueAtTime(0.15,a.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);o.start();o.stop(a.currentTime+0.3);};})();
+
+// ── Star sound — rising chime ──
+function playChime(freq, vol, duration){
+  const a=getAudioCtx();if(!a)return;
+  const o=a.createOscillator(),g=a.createGain();
+  o.connect(g);g.connect(a.destination);
+  o.type='sine';
+  o.frequency.setValueAtTime(freq*0.8,a.currentTime);
+  o.frequency.linearRampToValueAtTime(freq,a.currentTime+0.1);
+  g.gain.setValueAtTime(0,a.currentTime);
+  g.gain.linearRampToValueAtTime(vol,a.currentTime+0.05);
+  g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+duration);
+  o.start();o.stop(a.currentTime+duration);
+}
 
 function startCalibAnim(){
   calibPath=buildCalibPath();
@@ -1512,9 +1101,6 @@ function startCalibAnim(){
   calibRaf=requestAnimationFrame(loop);
 }
 
-// ─────────────────────────────────────────────
-// FINALISE CALIBRATION → start validation
-// ─────────────────────────────────────────────
 function finaliseCalib(){
   cancelAnimationFrame(calibRaf);
   calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
@@ -1525,75 +1111,228 @@ function finaliseCalib(){
     card.querySelector('p').textContent=`Only ${calibSamples.length} samples (need ${MIN_SAMPLES}). Please retry.`;
     document.getElementById('calib-start-btn').textContent='↺ Retry';
     document.getElementById('calib-overlay').style.display='flex';
-    calibSamples=[];
-    phase='calib-ready';            // ← allow retry
-    return;
+    calibSamples=[];phase='calib-ready';return;
   }
-  // Switch to validation phase
   phase='validation';
   startValidation();
 }
 
-// ─────────────────────────────────────────────
-// VALIDATION
-// ─────────────────────────────────────────────
-function startValidation(){
-  valPoints=[];
-  const W=window.innerWidth,H=window.innerHeight,mx=W*.1,my=H*.1;
-  valPoints=[{x:W/2,y:H/2},{x:mx,y:my},{x:W-mx,y:my},{x:W-mx,y:H-my},{x:mx,y:H-my}];
-  valIdx=0;valSamples=[];
-  document.getElementById('val-overlay').style.display='block';
-  document.getElementById('val-msg').style.display='block';
-  setTimeout(()=>{document.getElementById('val-msg').style.display='none';runValDot();},1800);
+// ════════════════════════════════════════════════════════════
+//  STAR VALIDATION — child-friendly redesign
+//  ─────────────────────────────────────────────────────────
+//  Key changes vs original 1200ms dot approach:
+//  • 2800ms dwell (2.3× longer) — children need time to locate target
+//  • 600ms gap between stars — eyes need to settle after each saccade
+//  • 36px radius stars — much larger, easier to see peripherally
+//  • Springy entrance animation (scale 0→1 in 200ms with overshoot)
+//  • Sparkle particle burst on arrival — draws attention naturally
+//  • Twinkling shimmer during dwell — keeps child engaged on target
+//  • Rising chime sound on each star — audio cue aids attention
+//  • "Find the Star!" intro screen — parent instruction before first star
+//  • Star count badge — "Star 2 of 5" — progress visible to clinician
+//  • Collection window starts at 45% of dwell (1260ms in) — skip
+//    the initial saccade movement time, collect stable fixation only
+// ════════════════════════════════════════════════════════════
+
+// Particle system for sparkle bursts
+const VAL_PARTICLES = [];
+function spawnSparkles(ctx, x, y){
+  for(let i=0;i<14;i++){
+    const angle=Math.random()*Math.PI*2;
+    const speed=2+Math.random()*4;
+    VAL_PARTICLES.push({
+      x,y,
+      vx:Math.cos(angle)*speed,
+      vy:Math.sin(angle)*speed,
+      life:1,
+      size:2+Math.random()*4,
+      hue:40+Math.random()*30
+    });
+  }
+}
+function updateSparkles(ctx){
+  for(let i=VAL_PARTICLES.length-1;i>=0;i--){
+    const p=VAL_PARTICLES[i];
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.life-=0.035;
+    if(p.life<=0){VAL_PARTICLES.splice(i,1);continue;}
+    ctx.save();
+    ctx.globalAlpha=p.life;
+    ctx.fillStyle=`hsl(${p.hue},100%,65%)`;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
 }
 
-function drawValDot(ctx,x,y,progress,num){
-  const W=ctx.canvas.width,H=ctx.canvas.height;
-  ctx.clearRect(0,0,W,H);
-  const r=18,fill=progress;
-  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle='rgba(0,229,176,0.12)';ctx.fill();
-  ctx.beginPath();ctx.arc(x,y,r-3,-Math.PI/2,-Math.PI/2+fill*Math.PI*2);ctx.strokeStyle='var(--accent)';ctx.lineWidth=3;ctx.stroke();
-  ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,0.5)';ctx.font='11px monospace';ctx.textAlign='center';ctx.fillText(num+'/'+valPoints.length,x,y+r+14);
+// Draw a twinkling star shape
+function drawStar(ctx, x, y, radius, twinklePhase, entranceProgress){
+  const r = radius * entranceProgress; // scale up on entrance
+  const innerR = r * 0.4;
+  const points = 5;
+  const twinkle = 1 + Math.sin(twinklePhase * 8) * 0.08 * entranceProgress;
+  const rr = r * twinkle;
+
+  // Glow
+  const glowSize = rr * (1.8 + Math.sin(twinklePhase*6)*0.2);
+  const grad = ctx.createRadialGradient(x, y, 0, x, y, glowSize);
+  grad.addColorStop(0, `rgba(255,220,50,${0.35*entranceProgress})`);
+  grad.addColorStop(1, 'rgba(255,220,50,0)');
+  ctx.beginPath();ctx.arc(x,y,glowSize,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+
+  // Star shape
+  ctx.beginPath();
+  for(let i=0;i<points*2;i++){
+    const angle = (i*Math.PI/points) - Math.PI/2;
+    const rad = i%2===0 ? rr : innerR;
+    const px = x + Math.cos(angle)*rad;
+    const py = y + Math.sin(angle)*rad;
+    i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  const starGrad = ctx.createRadialGradient(x, y-rr*0.2, 0, x, y, rr);
+  starGrad.addColorStop(0,'#fff9c4');
+  starGrad.addColorStop(0.4,'#ffd700');
+  starGrad.addColorStop(1,'#ff9f00');
+  ctx.fillStyle=starGrad;
+  ctx.shadowColor='#ffd700';
+  ctx.shadowBlur=20*entranceProgress;
+  ctx.fill();
+  ctx.shadowBlur=0;
+
+  // Shimmer highlight
+  if(entranceProgress>0.8){
+    ctx.beginPath();
+    ctx.arc(x-rr*0.2, y-rr*0.25, rr*0.18, 0, Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${0.6*(entranceProgress-0.8)*5})`;
+    ctx.fill();
+  }
 }
 
 let _lastVideoTime=-1;
-function runValDot(){
+function startValidation(){
+  valPoints=[];
+  const W=window.innerWidth,H=window.innerHeight;
+  const mx=W*.1,my=H*.1;
+  valPoints=[
+    {x:W/2,  y:H/2},
+    {x:mx,   y:my},
+    {x:W-mx, y:my},
+    {x:W-mx, y:H-my},
+    {x:mx,   y:H-my}
+  ];
+  valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
+  document.getElementById('val-overlay').style.display='block';
+  document.getElementById('val-instruction').style.opacity='1';
+  document.getElementById('val-badge').style.display='none';
+  document.getElementById('val-badge-tot').textContent=valPoints.length;
+
+  // Show intro for VAL_INTRO_MS, then start
+  playChime(528, 0.1, 0.6);
+  setTimeout(()=>{
+    document.getElementById('val-instruction').style.opacity='0';
+    setTimeout(()=>{
+      document.getElementById('val-instruction').style.display='none';
+      document.getElementById('val-badge').style.display='block';
+      runStarDot();
+    },400);
+  }, VAL_INTRO_MS);
+}
+
+function runStarDot(){
   if(valIdx>=valPoints.length){finishValidation();return;}
-  const pt=valPoints[valIdx];
-  const valCanvas=document.getElementById('val-canvas');
-  valCanvas.width=window.innerWidth;valCanvas.height=window.innerHeight;
-  const vCtx=valCanvas.getContext('2d');
-  const collected=[];
-  valStart=performance.now();
+
+  const pt = valPoints[valIdx];
+  const valCanvas = document.getElementById('val-canvas');
+  valCanvas.width  = window.innerWidth;
+  valCanvas.height = window.innerHeight;
+  const vCtx = valCanvas.getContext('2d');
+  document.getElementById('val-badge-num').textContent = valIdx+1;
+
+  // Play rising chime — different note for each star so it feels like a game
+  const notes = [523, 659, 784, 880, 1047];
+  playChime(notes[valIdx % notes.length], 0.12, 0.5);
+
+  const collected = [];
+  const ENTRANCE_MS = 220; // springy grow-in duration
+  valStart = performance.now();
+  let sparkled = false;
+
+  // 600ms gap before star appears (eyes settle)
+  let inGap = true;
+  const gapEnd = valStart + VAL_GAP_MS;
+
   function frame(){
-    const elapsed=performance.now()-valStart;
-    const progress=Math.min(elapsed/valDwellMs,1);
-    drawValDot(vCtx,pt.x,pt.y,progress,valIdx+1);
-    if(elapsed>valDwellMs*0.45&&gazeModel){
-      if(webcam.readyState>=2&&faceLandmarker&&webcam.currentTime!==_lastVideoTime){
+    const now = performance.now();
+    const elapsed = now - valStart;
+
+    vCtx.clearRect(0, 0, valCanvas.width, valCanvas.height);
+
+    if(inGap){
+      // Gap phase — draw sparkles dying out from previous star
+      updateSparkles(vCtx);
+      if(now >= gapEnd){ inGap=false; }
+      valRaf=requestAnimationFrame(frame);
+      return;
+    }
+
+    // Active star phase
+    const starElapsed = now - gapEnd;
+    const starProgress = Math.min(starElapsed / VAL_DWELL_MS, 1);
+
+    // Entrance: ease out with slight overshoot (spring)
+    let entrance;
+    const entPct = Math.min(starElapsed / ENTRANCE_MS, 1);
+    if(entPct < 1){
+      // Cubic ease-out with bounce
+      const t = entPct;
+      entrance = 1 - Math.pow(1-t, 3) * Math.cos(t * Math.PI * 2.5);
+      entrance = Math.min(entrance, 1.12); // allow slight overshoot
+    } else {
+      entrance = 1;
+    }
+
+    // Sparkle burst once on arrival
+    if(!sparkled && entPct >= 0.9){
+      spawnSparkles(vCtx, pt.x, pt.y);
+      sparkled=true;
+    }
+
+    updateSparkles(vCtx);
+    drawStar(vCtx, pt.x, pt.y, VAL_STAR_RADIUS, starElapsed*0.001, Math.min(entrance, 1));
+
+    // Collect gaze samples during the stable window (after 45% of dwell)
+    if(starProgress >= VAL_SAMPLE_START && gazeModel){
+      if(webcam.readyState>=2 && faceLandmarker && webcam.currentTime!==_lastVideoTime){
         _lastVideoTime=webcam.currentTime;
-        const res=faceLandmarker.detectForVideo(webcam,performance.now());
-        if(res.faceLandmarks&&res.faceLandmarks.length>0){
-          const lm=res.faceLandmarks[0];
-          const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
-          const feat=extractFeatures(lm,mat);
-          if(feat[7]>=0.06){
-            const pf=poly(feat);
-            collected.push({px:pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0),py:pf.reduce((s,v,i)=>s+v*gazeModel.wy[i],0)});
+        try{
+          const res=faceLandmarker.detectForVideo(webcam,performance.now());
+          if(res.faceLandmarks&&res.faceLandmarks.length>0){
+            const lm=res.faceLandmarks[0];
+            const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
+            const feat=extractFeatures(lm,mat);
+            if(feat[7]>=0.06){
+              const pf=poly(feat);
+              collected.push({
+                px:pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0),
+                py:pf.reduce((s,v,i)=>s+v*gazeModel.wy[i],0)
+              });
+            }
           }
-        }
+        }catch(e){}
       }
     }
-    if(elapsed<valDwellMs){valRaf=requestAnimationFrame(frame);}
-    else{
+
+    if(starProgress < 1){
+      valRaf=requestAnimationFrame(frame);
+    } else {
+      // Done with this star
       if(collected.length>=3){
         const mxs=collected.map(p=>p.px).sort((a,b)=>a-b);
         const mys=collected.map(p=>p.py).sort((a,b)=>a-b);
         const mid=Math.floor(mxs.length/2);
         valSamples.push({px:mxs[mid],py:mys[mid],tx:pt.x,ty:pt.y});
       }
-      valIdx++;runValDot();
+      valIdx++;
+      runStarDot();
     }
   }
   valRaf=requestAnimationFrame(frame);
@@ -1602,20 +1341,19 @@ function runValDot(){
 function finishValidation(){
   cancelAnimationFrame(valRaf);
   document.getElementById('val-overlay').style.display='none';
+
   if(valSamples.length>=3){
     affineBias=computeAffineCorrection(valSamples);
     const badCalib=Math.abs(affineBias.dx)>300||affineBias.sx>1.4||affineBias.sx<0.7;
     if(badCalib){
       affineBias={dx:0,dy:0,sx:1,sy:1};
-      calibSamples=[];
-      gazeModel=null;                     // discard invalid model
+      calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
       card.querySelector('h2').textContent='🐰 Let\'s try again!';
       card.querySelector('p').innerHTML='Child may have looked away — that\'s OK!<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, remind: <strong style="color:#fff">"Watch the bunny!"</strong>';
       document.getElementById('calib-start-btn').textContent='🐰 Play Again!';
       document.getElementById('calib-overlay').style.display='flex';
-      phase='calib-ready';                 // back to ready for retry
-      return;
+      phase='calib-ready';return;
     }
   }
   phase='stimulus';
@@ -1630,11 +1368,11 @@ document.getElementById('calib-start-btn').addEventListener('click',()=>{
   calibSamples=[];phase='calib-run';startCalibAnim();
 });
 
-// ─────────────────────────────────────────────
-// RECORDING
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  RECORDING
+// ════════════════════════════════════════════════════════════
 function startRecording(){
-  sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;lastGaze=null;gazeTrail=[];
+  sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;lastGaze=null;
   timerInt=setInterval(()=>{
     const s=Math.floor((Date.now()-sessionStart)/1000);
     document.getElementById('h-timer').textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
@@ -1667,13 +1405,12 @@ document.getElementById('sound-btn').addEventListener('click',()=>{
   document.getElementById('sound-btn').style.display='none';
 });
 
-// ─────────────────────────────────────────────
-// MAIN PROCESSING LOOP
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  MAIN PROCESSING LOOP
+// ════════════════════════════════════════════════════════════
 let _lastVT=-1;
 function processingLoop(){
   if(phase==='done')return;
-  // During validation we do nothing here – validation runs separately
   if(phase==='validation'){procRaf=requestAnimationFrame(processingLoop);return;}
   if(webcam.readyState>=2&&faceLandmarker){
     if(webcam.currentTime===_lastVT){procRaf=requestAnimationFrame(processingLoop);return;}
@@ -1701,7 +1438,6 @@ function processingLoop(){
     }
     if(hasFace){
       const lm=res.faceLandmarks[0];
-      diagFeatures(lm,mat);
       const features=extractFeatures(lm,mat);
       const isBlink=features[7]<0.06;
       if(phase==='calib-run'){
@@ -1739,13 +1475,13 @@ function processingLoop(){
   procRaf=requestAnimationFrame(processingLoop);
 }
 
-// ─────────────────────────────────────────────
-// CSV
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  CSV
+// ════════════════════════════════════════════════════════════
 const CSV_HDR=['Unnamed: 0','RecordingTime [ms]','Time of Day [h:m:s:ms]','Trial','Stimulus','Export Start Trial Time [ms]','Export End Trial Time [ms]','Participant','Color','Tracking Ratio [%]','Index Right','Pupil Size Right X [px]','Pupil Size Right Y [px]','Point of Regard Right X [px]','Point of Regard Right Y [px]','Gaze Vector Right X','Gaze Vector Right Y','Gaze Vector Right Z','Eye Position Right X [mm]','Eye Position Right Y [mm]','Eye Position Right Z [mm]','Pupil Position Right X [px]','Pupil Position Right Y [px]','Port Status','Annotation Name','Annotation Description','Annotation Tags','Mouse Position X [px]','Mouse Position Y [px]','Scroll Direction X','Scroll Direction Y','Content'].join(',');
 
 function buildCSV(){
-  const biasMeta=`# GazeTrack v11 | bias_dx=${affineBias.dx.toFixed(2)} bias_dy=${affineBias.dy.toFixed(2)} bias_sx=${affineBias.sx.toFixed(4)} bias_sy=${affineBias.sy.toFixed(4)} val_samples=${valSamples.length}`;
+  const biasMeta=`# GazeTrack v12 | bias_dx=${affineBias.dx.toFixed(2)} bias_dy=${affineBias.dy.toFixed(2)} bias_sx=${affineBias.sx.toFixed(4)} bias_sy=${affineBias.sy.toFixed(4)} val_samples=${valSamples.length}`;
   const lines=[biasMeta,CSV_HDR];
   recordedFrames.forEach((f,i)=>{
     const d=new Date(sessionStart+f.t);
@@ -1766,9 +1502,9 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
 }
 
-// ─────────────────────────────────────────────
-// END SESSION
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  END SESSION
+// ════════════════════════════════════════════════════════════
 function endSession(){
   if(phase==='done')return;
   phase='done';
@@ -1790,18 +1526,21 @@ function endSession(){
     <div class="done-stat"><div class="n" style="color:${ystd>30?'var(--accent)':'var(--warn)'}">${ystd.toFixed(0)}px</div><div class="l">Y STD</div></div>
     <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>`;
   showScreen('done');
-  setTimeout(downloadCSV,600);
   const ts2=new Date().toISOString().replace(/[:.]/g,'-');
-  setTimeout(()=>uploadToDrive(csvData,`gaze_${META.pid}_${META.group}_${ts2}.csv`),1200);
+  setTimeout(()=>uploadToDrive(csvData,`gaze_${META.pid}_${META.group}_${ts2}.csv`),600);
 }
 
 document.getElementById('end-btn').addEventListener('click',endSession);
-document.getElementById('btn-dl').addEventListener('click',downloadCSV);
+document.getElementById('btn-dl').addEventListener('click',()=>{
+  if(_driveFileId) window.open('https://drive.google.com/file/d/'+_driveFileId+'/view','_blank');
+  else if(_driveFolderId) window.open('https://drive.google.com/drive/folders/'+_driveFolderId,'_blank');
+  else window.open('https://drive.google.com','_blank');
+});
 document.getElementById('btn-restart').addEventListener('click',()=>location.reload());
 
-// ─────────────────────────────────────────────
-// GOOGLE DRIVE SILENT UPLOAD
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  GOOGLE DRIVE
+// ════════════════════════════════════════════════════════════
 const GDRIVE_CLIENT_ID='864707039212-vosjr7obitpbcd7hjol8d2cvq5d6aj7u.apps.googleusercontent.com';
 const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const GDRIVE_FOLDER='GazeTrack Sessions';
@@ -1813,17 +1552,25 @@ function driveSetStatus(icon,msg,color){
   el.style.borderColor=color||'var(--border)';
 }
 
+let _driveFileId=null, _driveFolderId=null;
+
 async function uploadToDrive(csvText,filename){
-  driveSetStatus('☁️','Connecting to Google Drive…','var(--border)');
+  driveSetStatus('☁️','Saving to Google Drive…','var(--border)');
   try{
     const token=await getGoogleToken();
-    const folderId=await findOrCreateFolder(GDRIVE_FOLDER,token);
-    driveSetStatus('⬆️','Uploading CSV…','rgba(0,229,176,0.4)');
-    await uploadFile(csvText,filename,folderId,token);
-    driveSetStatus('✅',`Saved: ${filename}`,'rgba(0,229,176,0.4)');
+    _driveFolderId=await findOrCreateFolder(GDRIVE_FOLDER,token);
+    driveSetStatus('⬆️','Uploading…','rgba(0,229,176,0.4)');
+    const result=await uploadFile(csvText,filename,_driveFolderId,token);
+    _driveFileId=result.id||null;
+    driveSetStatus('✅','Saved! Click "Open in Drive" to view','rgba(0,229,176,0.4)');
+    const btn=document.getElementById('btn-dl');
+    btn.textContent='\u2601\ufe0f Open in Drive';
+    btn.style.opacity='1';
+    btn.style.pointerEvents='auto';
   }catch(err){
     console.error('[GazeTrack] Drive upload failed:',err);
-    driveSetStatus('⚠️','Drive upload failed — CSV downloaded locally','rgba(255,92,58,0.4)');
+    driveSetStatus('\u274c','Drive failed — downloading locally instead','rgba(255,92,58,0.4)');
+    downloadCSV();
   }
 }
 
@@ -1855,9 +1602,9 @@ async function uploadFile(csvText,filename,folderId,token){
   return resp.json();
 }
 
-// ─────────────────────────────────────────────
-// DEBUG & CLEANUP
-// ─────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  DEBUG & CLEANUP
+// ════════════════════════════════════════════════════════════
 window.addEventListener('keydown',e=>{
   if(e.key==='d'||e.key==='D'){const p=document.getElementById('debug-panel');p.style.display=p.style.display==='none'?'block':'none';}
 });
