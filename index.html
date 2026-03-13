@@ -579,17 +579,16 @@ function showScreen(n){
 //  POSITION ALL-CLEAR LOGIC
 //  ─────────────────────────────────────────────────────────
 //  Runs every preflight frame. Requires that:
-//   • face is detected (skinRatio good)
-//   • distance is correct (skinRatio in good band)
-//   • lighting is good (brightness in range)
-//   • all three were true for GOOD_STREAK_NEEDED consecutive frames
+//   • face detected at good distance (MediaPipe IOD check in previewLoop)
+//   • lighting is good (brightness pixel check)
+//   • both true for GOOD_STREAK_NEEDED consecutive frames
 //
 //  When the banner appears it also announces specific checks that
 //  passed so the parent knows exactly what improved.
 //  When position degrades again it hides after BAD_STREAK_HIDE frames
 //  to avoid flickering during small head movements.
 // ════════════════════════════════════════════════════════════
-function updateAllClear(bright, skinRatio){
+function updateAllClear(bright){
   // Read directly from pfState — no re-computation, single source of truth
   const posOk   = pfState.face === 'pass';
   const lightOk = pfState.light === 'pass';
@@ -599,7 +598,7 @@ function updateAllClear(bright, skinRatio){
     _badFrameStreak = 0;
     _goodFrameStreak = Math.min(_goodFrameStreak + 1, GOOD_STREAK_NEEDED + 1);
     if(_goodFrameStreak >= GOOD_STREAK_NEEDED && !_allclearShowing){
-      showAllClear(bright, skinRatio);
+      showAllClear(bright);
     }
   } else {
     _goodFrameStreak = 0;
@@ -610,14 +609,14 @@ function updateAllClear(bright, skinRatio){
   }
 }
 
-function showAllClear(bright, skinRatio){
+function showAllClear(bright){
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
   const tags = ['✓ Face visible · Good distance', '✓ Lighting OK'];
   document.getElementById('allclear-tags').innerHTML =
     tags.map(t=>`<span class="allclear-tag">${t}</span>`).join('');
   document.getElementById('allclear-detail').textContent =
-    `Brightness ${Math.round(bright)}/255 · Skin ratio ${(skinRatio*100).toFixed(0)}%`;
+    `Brightness ${Math.round(bright)}/255`;
   allclearBanner.classList.add('show');
   playChime(660, 0.08, 0.4);
 }
@@ -684,18 +683,14 @@ function pfAnalyseFrame(){
   try{
     _pfCtx.drawImage(camPreview,0,0,80,60);
     const d=_pfCtx.getImageData(0,0,80,60).data;
-    let sumR=0,sumG=0,sumB=0,skinPx=0,n=0;
+    let sumR=0,sumG=0,sumB=0,n=0;
     for(let i=0;i<d.length;i+=4){
-      const r=d[i],g=d[i+1],b=d[i+2];
-      sumR+=r;sumG+=g;sumB+=b;n++;
-      if(r>80&&g>40&&b>20&&r>g&&r>b&&(r-b)>15) skinPx++;
+      sumR+=d[i];sumG+=d[i+1];sumB+=d[i+2];n++;
     }
     const brightness=(sumR+sumG+sumB)/(n*3);
-    const skinRatio=skinPx/n;
-    _pfSamples.push({brightness,skinRatio});
-    if(_pfSamples.length>5) _pfSamples.shift();
-    const avgBright=_pfSamples.reduce((a,b)=>a+b.brightness,0)/_pfSamples.length;
-    const avgSkin=_pfSamples.reduce((a,b)=>a+b.skinRatio,0)/_pfSamples.length;
+    _pfSamples.push(brightness);
+    if(_pfSamples.length>3) _pfSamples.shift();
+    const avgBright=_pfSamples.reduce((a,b)=>a+b,0)/_pfSamples.length;
 
     // Lighting
     if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`✓ Good (${Math.round(avgBright)}/255)`);
@@ -703,14 +698,8 @@ function pfAnalyseFrame(){
     else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) — improve lighting`);
     else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) — reduce backlight`);
 
-    // Position & Distance — single unified check (face presence + distance in one)
-    if(avgSkin>0.12)      pfSet('face','warn','⚠ Too close — move child back ~10 cm');
-    else if(avgSkin>0.06) pfSet('face','pass','✓ Face visible · Good distance (~50–70 cm)');
-    else if(avgSkin>0.03) pfSet('face','warn','⚠ Too far or partially visible — move closer');
-    else                  pfSet('face','fail','✗ No face detected — check camera position');
-
-    // ── Live all-clear update ──
-    updateAllClear(avgBright, avgSkin);
+    // ── Live all-clear update (lighting only — position driven by MediaPipe in previewLoop) ──
+    updateAllClear(avgBright);
 
   }catch(e){}
   pfRaf=requestAnimationFrame(pfAnalyseFrame);
@@ -794,20 +783,44 @@ function previewLoop(){
         document.getElementById('chk-face').textContent='✓ Face';
         document.getElementById('chk-iris').classList.toggle('ok',hasIris);
         document.getElementById('chk-iris').textContent=hasIris?'✓ Iris':'👁 Iris';
-        let qPct=60;
+
+        // ── MediaPipe-driven Position & Distance check ──
+        // iodNorm = inter-ocular distance in normalised 0-1 space
+        // Reliable regardless of lighting/skin tone — pure geometry
         if(hasIris){
+          const iodNorm=Math.hypot(lm[473].x-lm[468].x,lm[473].y-lm[468].y);
+          const faceCX=(lm[33].x+lm[263].x)/2; // horizontal face centre (0=left,1=right)
+          const offCentre=faceCX<0.25||faceCX>0.75;
           const lEAR=Math.hypot(lm[159].x-lm[145].x,lm[159].y-lm[145].y);
           const rEAR=Math.hypot(lm[386].x-lm[374].x,lm[386].y-lm[374].y);
           const earPx=(lEAR+rEAR)/2;
-          const iodPx=Math.hypot(lm[473].x-lm[468].x,lm[473].y-lm[468].y);
-          qPct=(earPx/(iodPx+1e-6))>0.08?95:75;
+          const qPct=(earPx/(iodNorm+1e-6))>0.08?95:75;
+          document.getElementById('q-fill').style.width=qPct+'%';
+          document.getElementById('q-pct').textContent=qPct+'%';
+          // iodNorm thresholds (calibrated for typical laptop/tablet webcam FOV):
+          // >0.22 = very close (<35cm), 0.13-0.22 = good (40-70cm),
+          // 0.07-0.13 = far (70-100cm), <0.07 = very far / small face
+          if(iodNorm>0.22)
+            pfSet('face','warn',`⚠ Too close (IOD ${iodNorm.toFixed(3)}) — move back ~15 cm`);
+          else if(iodNorm>=0.13)
+            pfSet('face','pass', offCentre
+              ? `✓ Good distance · Move slightly to centre`
+              : `✓ Face visible · Good distance (~50–70 cm)`);
+          else if(iodNorm>=0.07)
+            pfSet('face','warn',`⚠ Too far (IOD ${iodNorm.toFixed(3)}) — move ${offCentre?'closer & to centre':'~20 cm closer'}`);
+          else
+            pfSet('face','warn',`⚠ Very far or face at edge — move much closer`);
+        } else {
+          // Face found but no iris — can still give useful feedback
+          document.getElementById('q-fill').style.width='40%';
+          document.getElementById('q-pct').textContent='40%';
+          pfSet('face','warn','⚠ Face detected but iris not visible — look at camera');
         }
-        document.getElementById('q-fill').style.width=qPct+'%';
-        document.getElementById('q-pct').textContent=qPct+'%';
       }else{
         document.getElementById('chk-face').classList.remove('ok');document.getElementById('chk-face').textContent='👤 Face';
         document.getElementById('chk-iris').classList.remove('ok');document.getElementById('chk-iris').textContent='👁 Iris';
         document.getElementById('q-fill').style.width='0%';document.getElementById('q-pct').textContent='—';
+        pfSet('face','fail','✗ No face detected — check camera position');
       }
     }catch(e){}
   }
