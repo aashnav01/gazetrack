@@ -1,4 +1,4 @@
-﻿*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
 :root{
   --ink:#0b0d11;
@@ -26,7 +26,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 }
 .screen.active{display:flex}
 
-/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 1 â€” INTAKE (Light Clinical Theme) â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ════════════ SCREEN 1 – INTAKE (Light Clinical Theme) ════════════ */
 #s-intake{
   background:#f0f4f8;
   overflow-y:auto;
@@ -60,7 +60,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .chk{font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(239,68,68,.08);color:#dc2626;border:1px solid rgba(239,68,68,.2);font-family:var(--mono);transition:all .2s;}
 .chk.ok{background:rgba(13,148,136,.08);color:#0d9488;border-color:rgba(13,148,136,.25);}
 
-/* â•â•â•â• POSITION ALL-CLEAR BANNER â•â•â•â• */
+/* ════ POSITION ALL-CLEAR BANNER ════ */
 #position-allclear{
   display:none;
   margin:0 18px 14px;
@@ -143,14 +143,14 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .pf-advice.show{display:block;}
 .pf-advice strong{color:#dc2626;}
 
-/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 2 â€” LOADING â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ════════════ SCREEN 2 – LOADING ════════════ */
 #s-loading{background:var(--ink);gap:20px;}
 .load-ring{width:56px;height:56px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
 .load-msg{font-size:14px;color:var(--muted);font-family:var(--mono);}
 .load-title{font-size:22px;font-weight:700;color:#fff;}
 
-/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 3 â€” CALIBRATION â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ════════════ SCREEN 3 – CALIBRATION ════════════ */
 #s-calib{background:#0e1018;}
 #calib-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;}
 #calib-overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:10;background:rgba(10,12,16,.88);backdrop-filter:blur(6px);}
@@ -160,7 +160,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .calib-start-btn{padding:15px 40px;border-radius:50px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:800;font-size:16px;font-family:var(--sans);cursor:pointer;box-shadow:0 4px 20px rgba(0,229,176,.35);transition:transform .15s;}
 .calib-start-btn:hover{transform:scale(1.04);}
 
-/* â•â•â•â•â•â•â•â•â•â•â•â• VALIDATION OVERLAY â€” STAR APPROACH â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ════════════ VALIDATION OVERLAY – STAR APPROACH ════════════ */
 /* Full-screen dark overlay, child-friendly animated stars */
 #val-overlay{
   display:none;
@@ -196,7 +196,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 }
 #val-badge span{color:#fff;font-weight:700;}
 
-/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 4 â€” STIMULUS â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ════════════ SCREEN 4 – STIMULUS ════════════ */
 #s-stimulus{background:#000;align-items:stretch;justify-content:stretch;}
 #stim-video{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;z-index:1;background:#000;}
 #gaze-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;background:transparent;}
@@ -222,7 +222,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 #sound-btn{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:25px;padding:11px 24px;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;z-index:10;display:none;animation:fadeUp .4s ease both;}
 @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}}
 
-/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 5 â€” DONE â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ════════════ SCREEN 5 – DONE ════════════ */
 #s-done{background:var(--ink);gap:20px;padding:40px;text-align:center;}
 .done-icon{font-size:72px;animation:pop .5s cubic-bezier(.17,.67,.26,1.4) both;}
 @keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
