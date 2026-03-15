@@ -22,6 +22,26 @@ const VAL_GAP_MS      = 500;    // gap between stars (ms)
 const VAL_STAR_RADIUS = 36;     // star radius (px)
 const VAL_INTRO_MS    = 1800;   // intro screen duration (ms)
 
+// -- Audio ------------------------------------------------------------------
+let _audioCtx=null;
+function getAudioCtx(){if(!_audioCtx){try{_audioCtx=new AudioContext();}catch(e){}}return _audioCtx;}
+
+const calibSound=(()=>{return()=>{const a=getAudioCtx();if(!a)return;const o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(0,a.currentTime);g.gain.linearRampToValueAtTime(0.15,a.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);o.start();o.stop(a.currentTime+0.3);};})();
+
+function playChime(freq,vol,duration){
+  const a=getAudioCtx();if(!a)return;
+  const o=a.createOscillator(),g=a.createGain();
+  o.connect(g);g.connect(a.destination);
+  o.type='sine';
+  o.frequency.setValueAtTime(freq*0.8,a.currentTime);
+  o.frequency.linearRampToValueAtTime(freq,a.currentTime+0.1);
+  g.gain.setValueAtTime(0,a.currentTime);
+  g.gain.linearRampToValueAtTime(vol,a.currentTime+0.05);
+  g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+duration);
+  o.start();o.stop(a.currentTime+duration);
+}
+
+
 // -- PEEK-A-BOO CALIBRATION CONFIG -------------------------------------------
 const CALIB_ATTRACT_MS     = 700;   // box jiggles - draws eye to location
 const CALIB_POPUP_MS       = 350;   // spring-in animation
