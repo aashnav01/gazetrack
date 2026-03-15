@@ -1,4 +1,4 @@
-console.log('%c GazeTrack v12 – live position all-clear + child-friendly star validation ','background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
+console.log('%c GazeTrack v12  live position all-clear + child-friendly star validation ','background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
 
@@ -15,13 +15,22 @@ const RIGHT_IRIS  = [473,474,475,476];
 const L_CORNERS   = [33,133];
 const R_CORNERS   = [362,263];
 
-// ── STAR VALIDATION CONFIG ──
+// STAR VALIDATION CONFIG
 // Longer dwell so children have time to locate and fixate each star
-const VAL_DWELL_MS    = 2800;   // was 1200ms – 2.3× longer
+const VAL_DWELL_MS    = 2800;   // was 1200ms  2.3 -  longer
 const VAL_GAP_MS      = 600;    // pause between stars so eyes settle
 const VAL_STAR_RADIUS = 36;     // larger target (was 18px)
 const VAL_SAMPLE_START= 0.45;   // start collecting after 45% of dwell
 const VAL_INTRO_MS    = 2000;   // "Find the star!" shown before first star
+
+// -- PEEK-A-BOO CALIBRATION CONFIG --------------------------------------------
+const CALIB_ATTRACT_MS     = 700;   // box jiggles  -  draws eye to location
+const CALIB_POPUP_MS       = 350;   // spring-in animation
+const CALIB_STILL_MS       = 1800;  // character holds still  -  sample window
+const CALIB_BYE_MS         = 250;   // wave goodbye
+const CALIB_GAP_MS_CALIB   = 400;   // blank between points  -  eyes settle
+const CALIB_MIN_PT_SAMPLES = 4;     // min gaze samples per point before advancing
+const CALIB_CHAR_R         = 42;    // character radius (px)  -  larger for visibility
 
 // STATE
 let phase = 'intake';
@@ -41,7 +50,7 @@ let calibFacePresent=false;
 let videoBlob=null;
 let META={pid:'',age:'',group:'',clinician:'',location:'',notes:''};
 
-// ── POSITION ALL-CLEAR STATE ──
+// POSITION ALL-CLEAR STATE
 // Tracks consecutive good-position frames to debounce noise
 let _goodFrameStreak    = 0;
 let _badFrameStreak     = 0;
@@ -74,21 +83,21 @@ function showScreen(n){
   screens[n].classList.add('active');
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  POSITION ALL-CLEAR LOGIC
-//  ─────────────────────────────────────────────────────────
+//  
 //  Runs every preflight frame. Requires that:
-//   • face detected at good distance (MediaPipe IOD check in previewLoop)
-//   • lighting is good (brightness pixel check)
-//   • both true for GOOD_STREAK_NEEDED consecutive frames
+//   - face detected at good distance (MediaPipe IOD check in previewLoop)
+//   - lighting is good (brightness pixel check)
+//   - both true for GOOD_STREAK_NEEDED consecutive frames
 //
 //  When the banner appears it also announces specific checks that
 //  passed so the parent knows exactly what improved.
 //  When position degrades again it hides after BAD_STREAK_HIDE frames
 //  to avoid flickering during small head movements.
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function updateAllClear(bright){
-  // Read directly from pfState – no re-computation, single source of truth
+  // Read directly from pfState  no re-computation, single source of truth
   const posOk   = pfState.face === 'pass';
   const lightOk = pfState.light === 'pass';
   const allOk   = posOk && lightOk;
@@ -111,7 +120,7 @@ function updateAllClear(bright){
 function showAllClear(bright){
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
-  const tags = ['✓ Face visible · Good distance', '✓ Lighting OK'];
+  const tags = ['oe" Face visible . Good distance', 'oe" Lighting OK'];
   document.getElementById('allclear-tags').innerHTML =
     tags.map(t=>`<span class="allclear-tag">${t}</span>`).join('');
   document.getElementById('allclear-detail').textContent =
@@ -125,9 +134,9 @@ function hideAllClear(){
   allclearBanner.classList.remove('show');
 }
 
-// ════════════════════════════════════════════════════════════
-//  PRE-FLIGHT – pixel analysis, runs during intake
-// ════════════════════════════════════════════════════════════
+// ************************************************************
+//  PRE-FLIGHT  pixel analysis, runs during intake
+// ************************************************************
 const pfState={cam:'scanning',face:'scanning',light:'scanning',browser:'scanning'};
 let pfRaf=null;
 let _pfSamples=[], _pfThrottle=0;
@@ -153,22 +162,22 @@ function pfUpdateScore(){
   const fill=document.getElementById('pf-score-fill');
   const pct=document.getElementById('pf-score-pct');
   if(fill){fill.style.width=score+'%';fill.style.background=score>=75?'var(--accent)':score>=50?'var(--gold)':'var(--warn)';}
-  if(pct) pct.textContent=done===total?score+'%':'…';
+  if(pct) pct.textContent=done===total?score+'%':'...';
   const tips=[];
-  if(pfState.light==='fail')  tips.push('<strong>💡 Too dark:</strong> Add a front-facing lamp.');
-  if(pfState.light==='warn')  tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
-  if(pfState.face==='fail')   tips.push('<strong>👤 No face:</strong> Make sure child is in frame, camera at eye level.');
-  if(pfState.browser==='warn')tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
+  if(pfState.light==='fail')  tips.push('<strong>Y'! Too dark:</strong> Add a front-facing lamp.');
+  if(pfState.light==='warn')  tips.push('<strong>Y'! Lighting:</strong> Brighter room helps iris detection.');
+  if(pfState.face==='fail')   tips.push('<strong>Y'$ No face:</strong> Make sure child is in frame, camera at eye level.');
+  if(pfState.browser==='warn')tips.push('<strong>YOE Browser:</strong> Use Chrome for best webcam performance.');
   const adv=document.getElementById('pf-advice');
   if(adv){adv.innerHTML=tips.join('<br>');adv.className='pf-advice'+(tips.length?' show':'');}
-  // Button label only – enabled/disabled is managed solely by checkStartBtn
+  // Button label only  enabled/disabled is managed solely by checkStartBtn
   const btn=document.getElementById('start-btn');
   if(!btn.disabled){
     const critFails=['cam','face'].filter(k=>pfState[k]==='fail').length;
-    if(critFails>0){btn.textContent='⚠️ Proceed Anyway';btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';}
-    else if(done<total){btn.textContent='Begin Session →';btn.style.background='';}
-    else if(score>=75){btn.textContent='✅ All Clear – Begin Session';btn.style.background='';}
-    else{btn.textContent='⚠️ Proceed with Warnings';btn.style.background='linear-gradient(135deg,#ca8a04,#a16207)';}
+    if(critFails>0){btn.textContent='s , Proceed Anyway';btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';}
+    else if(done<total){btn.textContent='Begin Session +'';btn.style.background='';}
+    else if(score>=75){btn.textContent='oe... All Clear  Begin Session';btn.style.background='';}
+    else{btn.textContent='s , Proceed with Warnings';btn.style.background='linear-gradient(135deg,#ca8a04,#a16207)';}
   }
 }
 
@@ -192,12 +201,12 @@ function pfAnalyseFrame(){
     const avgBright=_pfSamples.reduce((a,b)=>a+b,0)/_pfSamples.length;
 
     // Lighting
-    if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`✓ Good (${Math.round(avgBright)}/255)`);
-    else if(avgBright<40)                pfSet('light','fail',`✗ Too dark (${Math.round(avgBright)}) – add light`);
-    else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) – improve lighting`);
-    else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) – reduce backlight`);
+    if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`oe" Good (${Math.round(avgBright)}/255)`);
+    else if(avgBright<40)                pfSet('light','fail',`oe -  Too dark (${Math.round(avgBright)})  add light`);
+    else if(avgBright<60)                pfSet('light','warn',`s  Dim (${Math.round(avgBright)})  improve lighting`);
+    else                                 pfSet('light','warn',`s  Bright (${Math.round(avgBright)})  reduce backlight`);
 
-    // ── Live all-clear update (lighting only – position driven by MediaPipe in previewLoop) ──
+    // Live all-clear update (lighting only  position driven by MediaPipe in previewLoop)
     updateAllClear(avgBright);
 
   }catch(e){}
@@ -209,15 +218,15 @@ function pfCheckBrowser(){
   const isChrome=/Chrome/.test(ua)&&!/Edg/.test(ua)&&!/OPR/.test(ua);
   const isEdge=/Edg/.test(ua);
   const isFirefox=/Firefox/.test(ua);
-  if(isChrome)       pfSet('browser','pass','✓ Chrome – optimal');
-  else if(isEdge)    pfSet('browser','pass','✓ Edge – good');
-  else if(isFirefox) pfSet('browser','warn','⚠ Firefox – use Chrome for best results');
-  else               pfSet('browser','warn','⚠ Use Chrome for best results');
+  if(isChrome)       pfSet('browser','pass','oe" Chrome  optimal');
+  else if(isEdge)    pfSet('browser','pass','oe" Edge  good');
+  else if(isFirefox) pfSet('browser','warn','s  Firefox  use Chrome for best results');
+  else               pfSet('browser','warn','s  Use Chrome for best results');
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  CAMERA INIT
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 async function initCamera(){
   try{
     const stream=await navigator.mediaDevices.getUserMedia({
@@ -229,19 +238,19 @@ async function initCamera(){
     document.getElementById('cam-dot').classList.add('ok');
     document.getElementById('cam-status-txt').textContent='Camera active';
     document.getElementById('chk-cam').classList.add('ok');
-    document.getElementById('chk-cam').textContent='✓ Cam';
+    document.getElementById('chk-cam').textContent='oe" Cam';
     const t=stream.getVideoTracks()[0].getSettings();
     const w=t.width||640, h=t.height||480;
-    pfSet('cam','pass',`✓ ${w}×${h}`);
+    pfSet('cam','pass',`oe" ${w} - ${h}`);
     checkStartBtn();
     pfRaf=requestAnimationFrame(pfAnalyseFrame);
     pfCheckBrowser();
     loadPreviewDetector();
   }catch(e){
-    document.getElementById('cam-status-txt').textContent='✗ Camera error – allow access';
-    pfSet('cam','fail','✗ Camera denied or not found');
-    pfSet('face','fail','✗ No camera');
-    pfSet('light','fail','✗ No camera');
+    document.getElementById('cam-status-txt').textContent='oe -  Camera error  allow access';
+    pfSet('cam','fail','oe -  Camera denied or not found');
+    pfSet('face','fail','oe -  No camera');
+    pfSet('light','fail','oe -  No camera');
   }
 }
 
@@ -279,13 +288,13 @@ function previewLoop(){
         const lm=res.faceLandmarks[0];
         const hasIris=!!(lm[468]&&lm[473]);
         document.getElementById('chk-face').classList.add('ok');
-        document.getElementById('chk-face').textContent='✓ Face';
+        document.getElementById('chk-face').textContent='oe" Face';
         document.getElementById('chk-iris').classList.toggle('ok',hasIris);
-        document.getElementById('chk-iris').textContent=hasIris?'✓ Iris':'👁 Iris';
+        document.getElementById('chk-iris').textContent=hasIris?'oe" Iris':'Y' Iris';
 
-        // ── MediaPipe-driven Position & Distance check ──
+        // MediaPipe-driven Position & Distance check
         // iodNorm = inter-ocular distance in normalised 0-1 space
-        // Reliable regardless of lighting/skin tone – pure geometry
+        // Reliable regardless of lighting/skin tone  pure geometry
         if(hasIris){
           const iodNorm=Math.hypot(lm[473].x-lm[468].x,lm[473].y-lm[468].y);
           const faceCX=(lm[33].x+lm[263].x)/2; // horizontal face centre (0=left,1=right)
@@ -300,26 +309,26 @@ function previewLoop(){
           // >0.22 = very close (<35cm), 0.13-0.22 = good (40-70cm),
           // 0.07-0.13 = far (70-100cm), <0.07 = very far / small face
           if(iodNorm>0.22)
-            pfSet('face','warn',`⚠ Too close (IOD ${iodNorm.toFixed(3)}) – move back ~15 cm`);
+            pfSet('face','warn',`s  Too close (IOD ${iodNorm.toFixed(3)})  move back ~15 cm`);
           else if(iodNorm>=0.13)
             pfSet('face','pass', offCentre
-              ? `✓ Good distance · Move slightly to centre`
-              : `✓ Face visible · Good distance (~50—70 cm)`);
+              ? `oe" Good distance . Move slightly to centre`
+              : `oe" Face visible . Good distance (~5070 cm)`);
           else if(iodNorm>=0.07)
-            pfSet('face','warn',`⚠ Too far (IOD ${iodNorm.toFixed(3)}) – move ${offCentre?'closer & to centre':'~20 cm closer'}`);
+            pfSet('face','warn',`s  Too far (IOD ${iodNorm.toFixed(3)})  move ${offCentre?'closer & to centre':'~20 cm closer'}`);
           else
-            pfSet('face','warn',`⚠ Very far or face at edge – move much closer`);
+            pfSet('face','warn',`s  Very far or face at edge  move much closer`);
         } else {
-          // Face found but no iris – can still give useful feedback
+          // Face found but no iris  can still give useful feedback
           document.getElementById('q-fill').style.width='40%';
           document.getElementById('q-pct').textContent='40%';
-          pfSet('face','warn','⚠ Face detected but iris not visible – look at camera');
+          pfSet('face','warn','s  Face detected but iris not visible  look at camera');
         }
       }else{
-        document.getElementById('chk-face').classList.remove('ok');document.getElementById('chk-face').textContent='👤 Face';
-        document.getElementById('chk-iris').classList.remove('ok');document.getElementById('chk-iris').textContent='👁 Iris';
-        document.getElementById('q-fill').style.width='0%';document.getElementById('q-pct').textContent='–';
-        pfSet('face','fail','✗ No face detected – check camera position');
+        document.getElementById('chk-face').classList.remove('ok');document.getElementById('chk-face').textContent='Y'$ Face';
+        document.getElementById('chk-iris').classList.remove('ok');document.getElementById('chk-iris').textContent='Y' Iris';
+        document.getElementById('q-fill').style.width='0%';document.getElementById('q-pct').textContent='';
+        pfSet('face','fail','oe -  No face detected  check camera position');
       }
     }catch(e){}
   }
@@ -342,9 +351,9 @@ function drawPreviewMesh(lm){
   });
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  FORM
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function checkStartBtn(){
   const pidOk=document.getElementById('f-pid').value.trim().length>0;
   const groupOk=document.querySelector('input[name="group"]:checked')!==null;
@@ -359,7 +368,7 @@ document.getElementById('video-input').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   videoBlob=URL.createObjectURL(f);
   document.getElementById('video-hint').style.display='none';
-  document.getElementById('video-drop').insertAdjacentHTML('beforeend',`<div class="chosen">✓ ${f.name}</div>`);
+  document.getElementById('video-drop').insertAdjacentHTML('beforeend',`<div class="chosen">oe" ${f.name}</div>`);
 });
 
 document.getElementById('start-btn').addEventListener('click',()=>{
@@ -378,16 +387,16 @@ document.getElementById('start-btn').addEventListener('click',()=>{
 
 initCamera();
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  SESSION START
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 async function beginSession(){
   try{
     if(previewFl){
       faceLandmarker=previewFl;
-      document.getElementById('load-msg').textContent='Model ready – starting camera…';
+      document.getElementById('load-msg').textContent='Model ready  starting camera...';
     }else{
-      document.getElementById('load-msg').textContent='Loading eye tracking model…';
+      document.getElementById('load-msg').textContent='Loading eye tracking model...';
       const resolver=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
       faceLandmarker=await FaceLandmarker.createFromOptions(resolver,{
         baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
@@ -405,7 +414,7 @@ async function beginSession(){
     procRaf=requestAnimationFrame(processingLoop);
   }catch(err){
     console.error(err);
-    document.getElementById('load-msg').textContent='❌ '+(err.message||'Startup error');
+    document.getElementById('load-msg').textContent='OE '+(err.message||'Startup error');
   }
 }
 
@@ -414,9 +423,9 @@ function resizeCanvases(){
   calibCanvas.height=gazeCanvas.height=window.innerHeight;
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  FEATURE EXTRACTION
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function extractFeatures(lm,mat){
   const avg=ids=>{const s={x:0,y:0,z:0};ids.forEach(i=>{s.x+=lm[i].x;s.y+=lm[i].y;s.z+=(lm[i].z||0);});return{x:s.x/ids.length,y:s.y/ids.length,z:s.z/ids.length};};
   const li=avg(LEFT_IRIS),ri=avg(RIGHT_IRIS);
@@ -441,9 +450,9 @@ function extractFeatures(lm,mat){
   return[liX,riX,vertMain,foreheadY,irisY,(li.y+ri.y)/2,avgX,ear,iod];
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  RIDGE REGRESSION
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function poly(f){return[1,...f.slice(0,7)];}
 function ridgeFit(X,y,alpha=RIDGE_ALPHA){
   const n=X[0].length;
@@ -476,9 +485,9 @@ function predictGaze(feat,model){
   return{x:Math.max(0,Math.min(window.innerWidth,cx)),y:Math.max(0,Math.min(window.innerHeight,cy))};
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  AFFINE BIAS
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function computeAffineCorrection(pairs){
   function linfit(ps,ts){
     const n=ps.length,mp=ps.reduce((a,b)=>a+b,0)/n,mt=ts.reduce((a,b)=>a+b,0)/n;
@@ -493,111 +502,197 @@ function computeAffineCorrection(pairs){
   return{sx:fx.s,dx:fx.d,sy:fy.s,dy:fy.d};
 }
 
-// ════════════════════════════════════════════════════════════
-//  CALIBRATION
-// ════════════════════════════════════════════════════════════
-function buildCalibPath(){
-  const W=window.innerWidth,H=window.innerHeight;
-  const mx=W/2,my=H/2,px=W*.08,py=H*.08;
-  const wpts=[[mx,py,3],[W-px,py,3],[W-px,my,2],[W-px,H-py,3],[mx,H-py,3],[px,H-py,3],[px,my,2],[px,py,3],[mx,py,2],[mx,my,2],[W-px,my,1],[mx,H-py,2],[px,my,1],[mx,py,2],[mx,my,1]];
-  const totalW=wpts.reduce((s,w)=>s+w[2],0),totalSteps=900,pts=[];
-  for(let wi=0;wi<wpts.length-1;wi++){
-    const[x0,y0,w0]=wpts[wi],[x1,y1]=wpts[wi+1];
-    const steps=Math.round((w0/totalW)*totalSteps);
-    for(let s=0;s<steps;s++){const t=s/Math.max(steps-1,1),st=t*t*(3-2*t);pts.push([x0+(x1-x0)*st,y0+(y1-y0)*st]);}
-  }
-  while(pts.length<totalSteps)pts.push(wpts[wpts.length-1].slice(0,2));
-  return pts.slice(0,totalSteps);
+
+// ==================================================================
+//  CALIBRATION  -  Peek-a-Boo Still-Point Approach
+//  -----------------------------------------------------------------
+//  RESEARCH BASIS:
+//  * Children need a STILL target to fixate  -  a moving target produces
+//    smooth-pursuit data, not fixation data (unusable for calibration).
+//  * Audio + visual onset together draw attention most reliably in ASD.
+//  * Use tighter 12% inset grid  -  avoid extreme corners for young eyes.
+//  * Experimenter-paced calibration outperforms fixed timers.
+//
+//  PHASE FLOW PER POINT:
+//  1. ATTRACT (700ms): Surprise box jiggles + attention chime at target.
+//  2. POPUP (350ms): Character springs out with bounce animation.
+//  3. STILL (1800ms): Character holds still  -  gaze samples collected.
+//     Clinician can hold SPACEBAR to extend this window if needed.
+//  4. BYE (250ms): Character waves + box closes  -  transition cue.
+//  5. GAP (400ms): Blank screen  -  eyes settle before next point.
+//
+//  9 points on tighter 12% inset grid  -  avoids extreme corners.
+// ==================================================================
+
+// Peek-a-boo calibration state
+let peekPoints = [];
+let peekIdx = 0;
+let peekPhase = 'idle';
+let peekPhaseStart = 0;
+let peekHoldExtend = false;
+let peekSamplesThisPoint = 0;
+let peekRaf = null;
+const CAT_COLS=[{body:'#F8D7E3',stripe:'#E8A0B8'},{body:'#D7EAF8',stripe:'#90BDE0'},{body:'#E8D7F8',stripe:'#C090E0'},{body:'#D7F8E3',stripe:'#80D4A0'},{body:'#F8F0D7',stripe:'#E0C878'},{body:'#F8D7D7',stripe:'#E09090'}];
+let bci=0;
+
+function buildPeekPoints(){
+  const W=window.innerWidth, H=window.innerHeight;
+  const ix=Math.round(W*0.12), iy=Math.round(H*0.12);
+  return[
+    {x:W/2,   y:H/2},    // centre first  -  easiest, builds trust
+    {x:W/2,   y:iy},     // top mid
+    {x:W-ix,  y:iy},     // top right
+    {x:W-ix,  y:H/2},    // mid right
+    {x:W-ix,  y:H-iy},   // bottom right
+    {x:W/2,   y:H-iy},   // bottom mid
+    {x:ix,    y:H-iy},   // bottom left
+    {x:ix,    y:H/2},    // mid left
+    {x:ix,    y:iy},     // top left
+  ];
 }
 
-const CAT_COLS=[{body:'#F8D7E3',stripe:'#E8A0B8'},{body:'#D7EAF8',stripe:'#90BDE0'},{body:'#E8D7F8',stripe:'#C090E0'},{body:'#D7F8E3',stripe:'#80D4A0'},{body:'#F8F0D7',stripe:'#E0C878'},{body:'#F8D7D7',stripe:'#E09090'}];
-let bci=0,bct=0;
+function _rrect(ctx,x,y,w,h,r){
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
 
-function drawCat(x,y,t,happy){
-  const ctx=calibCtx,r=36,bob=Math.sin(t*4)*5,cy=y+bob;
-  const{body,stripe}=CAT_COLS[bci];
-  ctx.save();ctx.globalAlpha=0.13;ctx.beginPath();ctx.ellipse(x,cy+r+4,r*0.85,r*0.22,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
+function drawBox(ctx,x,y,t){
+  const jig=Math.sin(t*Math.PI*8)*6*(1-t);
+  const bx=x+jig, by=y+jig*0.5, s=28;
+  ctx.save(); ctx.globalAlpha=0.1;
+  ctx.beginPath(); ctx.ellipse(bx,by+s+4,s*0.9,s*0.18,0,0,Math.PI*2);
+  ctx.fillStyle='#000'; ctx.fill(); ctx.restore();
+  ctx.save();
+  ctx.fillStyle='#e8a020'; ctx.strokeStyle='#c07010'; ctx.lineWidth=2;
+  ctx.beginPath(); _rrect(ctx,bx-s,by-s*0.6,s*2,s*1.6,6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#f0b830';
+  ctx.beginPath(); _rrect(ctx,bx-s-3,by-s*0.6-s*0.45,s*2+6,s*0.45,4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font='bold 20px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('?',bx,by+s*0.2); ctx.restore();
+}
+
+function drawPeekChar(ctx,x,y,scale,wavePct){
+  const r=CALIB_CHAR_R*Math.max(0,scale);
+  const cy=y+CALIB_CHAR_R*(1-scale)*0.5;
+  const {body,stripe}=CAT_COLS[bci];
+  ctx.save(); ctx.globalAlpha=0.1;
+  ctx.beginPath(); ctx.ellipse(x,cy+r+3,r*0.85,r*0.18,0,0,Math.PI*2);
+  ctx.fillStyle='#000'; ctx.fill(); ctx.restore();
   [[-r*0.42,-r*1.1],[r*0.42,-r*1.1]].forEach(([dx])=>{
     const ex=x+dx,ey=cy-r;
-    ctx.save();ctx.translate(ex,ey);ctx.rotate(dx<0?-0.12:0.12);
-    ctx.beginPath();ctx.ellipse(0,-r*0.72,10,r*0.72,0,0,Math.PI*2);ctx.fillStyle=body;ctx.fill();
-    ctx.beginPath();ctx.ellipse(0,-r*0.72,6,r*0.55,0,0,Math.PI*2);ctx.fillStyle=stripe;ctx.fill();
+    ctx.save(); ctx.translate(ex,ey); ctx.rotate(dx<0?-0.12:0.12);
+    ctx.beginPath(); ctx.ellipse(0,-r*0.72,10,r*0.72,0,0,Math.PI*2); ctx.fillStyle=body; ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0,-r*0.72,6,r*0.55,0,0,Math.PI*2); ctx.fillStyle=stripe; ctx.fill();
     ctx.restore();
   });
-  ctx.beginPath();ctx.arc(x,cy,r,0,Math.PI*2);ctx.fillStyle=body;ctx.fill();
-  ctx.beginPath();ctx.ellipse(x,cy+r*0.15,r*0.6,r*0.45,0,0,Math.PI*2);ctx.fillStyle='#fff';ctx.globalAlpha=0.7;ctx.fill();ctx.globalAlpha=1;
-  if(happy){
-    ctx.beginPath();ctx.arc(x-r*0.28,cy-r*0.15,3,0,Math.PI*2);ctx.fillStyle='#1a1a2e';ctx.fill();
-    ctx.beginPath();ctx.arc(x+r*0.28,cy-r*0.15,3,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(x,cy+r*0.1,r*0.2,0,Math.PI);ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2;ctx.stroke();
-  }else{
-    ctx.beginPath();ctx.arc(x-r*0.28,cy-r*0.1,3,0,Math.PI*2);ctx.fillStyle='#1a1a2e';ctx.fill();
-    ctx.beginPath();ctx.arc(x+r*0.28,cy-r*0.1,3,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.arc(x,cy+r*0.25,r*0.18,Math.PI,0);ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2;ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,cy,r,0,Math.PI*2); ctx.fillStyle=body; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x,cy+r*0.15,r*0.6,r*0.45,0,0,Math.PI*2);
+  ctx.fillStyle='#fff'; ctx.globalAlpha=0.7; ctx.fill(); ctx.globalAlpha=1;
+  ctx.beginPath(); ctx.arc(x-r*0.28,cy-r*0.15,r*0.1,0,Math.PI*2); ctx.fillStyle='#1a1a2e'; ctx.fill();
+  ctx.beginPath(); ctx.arc(x+r*0.28,cy-r*0.15,r*0.1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x,cy+r*0.12,r*0.2,0,Math.PI); ctx.strokeStyle='#1a1a2e'; ctx.lineWidth=2*scale; ctx.stroke();
+  if(wavePct>0){
+    const wAngle=-Math.PI/4-Math.sin(wavePct*Math.PI*3)*0.7;
+    ctx.save(); ctx.translate(x+r*0.7,cy+r*0.1); ctx.rotate(wAngle);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*0.7,0);
+    ctx.strokeStyle=body; ctx.lineWidth=7*scale; ctx.lineCap='round'; ctx.stroke(); ctx.restore();
   }
   ctx.beginPath();
-  ctx.moveTo(x-r*0.35,cy+r*0.05);ctx.lineTo(x-r*0.75,cy-r*0.1);
-  ctx.moveTo(x-r*0.35,cy+r*0.15);ctx.lineTo(x-r*0.75,cy+r*0.15);
-  ctx.moveTo(x+r*0.35,cy+r*0.05);ctx.lineTo(x+r*0.75,cy-r*0.1);
-  ctx.moveTo(x+r*0.35,cy+r*0.15);ctx.lineTo(x+r*0.75,cy+r*0.15);
-  ctx.strokeStyle=stripe;ctx.lineWidth=1.5;ctx.stroke();
+  ctx.moveTo(x-r*0.35,cy+r*0.05); ctx.lineTo(x-r*0.75,cy-r*0.1);
+  ctx.moveTo(x-r*0.35,cy+r*0.15); ctx.lineTo(x-r*0.75,cy+r*0.15);
+  ctx.moveTo(x+r*0.35,cy+r*0.05); ctx.lineTo(x+r*0.75,cy-r*0.1);
+  ctx.moveTo(x+r*0.35,cy+r*0.15); ctx.lineTo(x+r*0.75,cy+r*0.15);
+  ctx.strokeStyle=stripe; ctx.lineWidth=1.5*scale; ctx.stroke();
 }
 
-// ── Shared audio context ──
-let _audioCtx=null;
-function getAudioCtx(){if(!_audioCtx){try{_audioCtx=new AudioContext();}catch(e){}}return _audioCtx;}
-
-const calibSound=(()=>{return()=>{const a=getAudioCtx();if(!a)return;const o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(0,a.currentTime);g.gain.linearRampToValueAtTime(0.15,a.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);o.start();o.stop(a.currentTime+0.3);};})();
-
-// ── Star sound – rising chime ──
-function playChime(freq, vol, duration){
-  const a=getAudioCtx();if(!a)return;
-  const o=a.createOscillator(),g=a.createGain();
-  o.connect(g);g.connect(a.destination);
-  o.type='sine';
-  o.frequency.setValueAtTime(freq*0.8,a.currentTime);
-  o.frequency.linearRampToValueAtTime(freq,a.currentTime+0.1);
-  g.gain.setValueAtTime(0,a.currentTime);
-  g.gain.linearRampToValueAtTime(vol,a.currentTime+0.05);
-  g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+duration);
-  o.start();o.stop(a.currentTime+duration);
+function drawCalibBadge(ctx,ptIdx,total,samples,ph){
+  const W=calibCanvas.width;
+  const ok=samples>=CALIB_MIN_PT_SAMPLES;
+  ctx.save();
+  ctx.fillStyle=ok?'rgba(0,180,100,0.88)':'rgba(20,20,40,0.78)';
+  ctx.beginPath(); _rrect(ctx,W-194,14,178,ph==='still'?62:46,10); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 14px sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('Point '+(ptIdx+1)+' / '+total,W-182,22);
+  ctx.font='12px sans-serif';
+  ctx.fillText('Samples: '+samples+(ok?'  \u2713 Good':'  collecting\u2026'),W-182,40);
+  if(ph==='still'){
+    ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font='11px sans-serif';
+    ctx.fillText('Hold SPACE to extend',W-182,56);
+  }
+  ctx.restore();
 }
 
-function startCalibAnim(){
-  calibPath=buildCalibPath();
-  calibStart=performance.now();
+function startPeekCalib(){
+  peekPoints=buildPeekPoints(); peekIdx=0;
   bci=Math.floor(Math.random()*CAT_COLS.length);
-  bct=0;
-  const loop=()=>{
-    if(phase!=='calib-run')return;
-    const elapsed=performance.now()-calibStart;
-    const pct=Math.min(elapsed/CALIB_MS,1);
-    calibCanvas.width=window.innerWidth;calibCanvas.height=window.innerHeight;
+  calibSamples=[];
+  window.addEventListener('keydown',_peekSpaceDown);
+  window.addEventListener('keyup',_peekSpaceUp);
+  runPeekPoint();
+}
+function _peekSpaceDown(e){if(e.code==='Space')peekHoldExtend=true;}
+function _peekSpaceUp(e){if(e.code==='Space')peekHoldExtend=false;}
+
+function runPeekPoint(){
+  if(peekIdx>=peekPoints.length){finalisePeekCalib();return;}
+  const pt=peekPoints[peekIdx];
+  peekPhase='attract'; peekPhaseStart=performance.now(); peekSamplesThisPoint=0;
+  const notes=[440,523,587,659,698,784,880,988,1047];
+  playChime(notes[peekIdx%notes.length],0.14,0.5);
+
+  function frame(){
+    if(phase!=='calib-run'){cancelAnimationFrame(peekRaf);return;}
+    const now=performance.now(), elapsed=now-peekPhaseStart;
+    calibCanvas.width=window.innerWidth; calibCanvas.height=window.innerHeight;
     calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
-    const idx=Math.floor(pct*(calibPath.length-1));
-    if(calibPath[idx]){
-      const[cx,cy]=calibPath[idx];
-      bct+=0.016;
-      const happy=calibFacePresent;
-      if(!happy&&!calibSoundPlayed){calibSound();calibSoundPlayed=true;}
-      else if(happy) calibSoundPlayed=false;
-      drawCat(cx,cy,bct,happy);
+    // Soft spotlight
+    const grad=calibCtx.createRadialGradient(pt.x,pt.y,10,pt.x,pt.y,110);
+    grad.addColorStop(0,'rgba(255,255,200,0.11)'); grad.addColorStop(1,'rgba(255,255,200,0)');
+    calibCtx.beginPath(); calibCtx.arc(pt.x,pt.y,110,0,Math.PI*2);
+    calibCtx.fillStyle=grad; calibCtx.fill();
+
+    if(peekPhase==='attract'){
+      drawBox(calibCtx,pt.x,pt.y,elapsed/CALIB_ATTRACT_MS);
+      if(elapsed>=CALIB_ATTRACT_MS){peekPhase='popup';peekPhaseStart=now;playChime(880,0.12,0.28);}
+    } else if(peekPhase==='popup'){
+      const t=Math.min(elapsed/CALIB_POPUP_MS,1);
+      const sc=1-Math.pow(1-t,3)*Math.cos(t*Math.PI*2.2);
+      drawPeekChar(calibCtx,pt.x,pt.y,Math.min(sc,1.08),0);
+      if(elapsed>=CALIB_POPUP_MS){peekPhase='still';peekPhaseStart=now;}
+    } else if(peekPhase==='still'){
+      drawPeekChar(calibCtx,pt.x,pt.y,1,0);
+      if(elapsed>=CALIB_STILL_MS&&!peekHoldExtend){peekPhase='bye';peekPhaseStart=now;playChime(660,0.08,0.28);}
+    } else if(peekPhase==='bye'){
+      const wp=Math.min(elapsed/CALIB_BYE_MS,1);
+      drawPeekChar(calibCtx,pt.x,pt.y,1-wp*0.5,wp);
+      if(elapsed>=CALIB_BYE_MS){peekPhase='gap';peekPhaseStart=now;}
+    } else if(peekPhase==='gap'){
+      calibCtx.globalAlpha=Math.max(0,1-elapsed/CALIB_GAP_MS);
+      drawCalibBadge(calibCtx,peekIdx,peekPoints.length,peekSamplesThisPoint,'gap');
+      calibCtx.globalAlpha=1;
+      if(elapsed>=CALIB_GAP_MS){peekIdx++;runPeekPoint();return;}
     }
-    if(pct>=1){finaliseCalib();return;}
-    calibRaf=requestAnimationFrame(loop);
-  };
-  calibRaf=requestAnimationFrame(loop);
+    if(peekPhase!=='gap') drawCalibBadge(calibCtx,peekIdx,peekPoints.length,peekSamplesThisPoint,peekPhase);
+    peekRaf=requestAnimationFrame(frame);
+  }
+  peekRaf=requestAnimationFrame(frame);
 }
 
-function finaliseCalib(){
-  cancelAnimationFrame(calibRaf);
+function finalisePeekCalib(){
+  cancelAnimationFrame(peekRaf);
+  window.removeEventListener('keydown',_peekSpaceDown);
+  window.removeEventListener('keyup',_peekSpaceUp);
   calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
   gazeModel=trainModel(calibSamples);
   if(!gazeModel){
     const card=document.getElementById('calib-card');
-    card.querySelector('h2').textContent='⚠️ Calibration incomplete';
-    card.querySelector('p').textContent=`Only ${calibSamples.length} samples (need ${MIN_SAMPLES}). Please retry.`;
-    document.getElementById('calib-start-btn').textContent='↺ Retry';
+    card.querySelector('h2').textContent='\u26a0\ufe0f Calibration incomplete';
+    card.querySelector('p').textContent='Only '+calibSamples.length+' samples (need '+MIN_SAMPLES+'). Please retry.';
+    document.getElementById('calib-start-btn').textContent='\u21ba Try Again';
     document.getElementById('calib-overlay').style.display='flex';
     calibSamples=[];phase='calib-ready';return;
   }
@@ -605,37 +700,30 @@ function finaliseCalib(){
   startValidation();
 }
 
-// ════════════════════════════════════════════════════════════
-//  STAR VALIDATION – child-friendly redesign
-//  ─────────────────────────────────────────────────────────
-//  Key changes vs original 1200ms dot approach:
-//  • 2800ms dwell (2.3× longer) – children need time to locate target
-//  • 600ms gap between stars – eyes need to settle after each saccade
-//  • 36px radius stars – much larger, easier to see peripherally
-//  • Springy entrance animation (scale 0→1 in 200ms with overshoot)
-//  • Sparkle particle burst on arrival – draws attention naturally
-//  • Twinkling shimmer during dwell – keeps child engaged on target
-//  • Rising chime sound on each star – audio cue aids attention
-//  • "Find the Star!" intro screen – parent instruction before first star
-//  • Star count badge – "Star 2 of 5" – progress visible to clinician
-//  • Collection window starts at 45% of dwell (1260ms in) – skip
-//    the initial saccade movement time, collect stable fixation only
-// ════════════════════════════════════════════════════════════
 
-// Particle system for sparkle bursts
-const VAL_PARTICLES = [];
-function spawnSparkles(ctx, x, y){
+// ==================================================================
+//  STAR VALIDATION  -  Quality-Gated
+//  -----------------------------------------------------------------
+//  Same star visual, but now the star waits for sufficient clean
+//  gaze samples before advancing (or advances on max timeout).
+//  This prevents a corrupt validation pass when the child looks away.
+//
+//  VAL_MIN_GOOD_SAMPLES: star stays until this many samples collected
+//  VAL_MAX_DWELL_MS:     hard timeout so it never blocks forever
+// ==================================================================
+
+const VAL_MIN_GOOD_SAMPLES = 6;   // must collect this many before advancing
+const VAL_MAX_DWELL_MS     = 4000; // hard cap per star (was 2800ms fixed)
+const VAL_GAP_MS           = 500;
+const VAL_STAR_RADIUS      = 36;
+const VAL_INTRO_MS         = 1800;
+
+// Particle system
+const VAL_PARTICLES=[];
+function spawnSparkles(ctx,x,y){
   for(let i=0;i<14;i++){
-    const angle=Math.random()*Math.PI*2;
-    const speed=2+Math.random()*4;
-    VAL_PARTICLES.push({
-      x,y,
-      vx:Math.cos(angle)*speed,
-      vy:Math.sin(angle)*speed,
-      life:1,
-      size:2+Math.random()*4,
-      hue:40+Math.random()*30
-    });
+    const a=Math.random()*Math.PI*2,sp=2+Math.random()*4;
+    VAL_PARTICLES.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,size:2+Math.random()*4,hue:40+Math.random()*30});
   }
 }
 function updateSparkles(ctx){
@@ -643,55 +731,36 @@ function updateSparkles(ctx){
     const p=VAL_PARTICLES[i];
     p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.life-=0.035;
     if(p.life<=0){VAL_PARTICLES.splice(i,1);continue;}
-    ctx.save();
-    ctx.globalAlpha=p.life;
-    ctx.fillStyle=`hsl(${p.hue},100%,65%)`;
-    ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();
-    ctx.restore();
+    ctx.save();ctx.globalAlpha=p.life;
+    ctx.fillStyle='hsl('+p.hue+',100%,65%)';
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();ctx.restore();
   }
 }
 
-// Draw a twinkling star shape
-function drawStar(ctx, x, y, radius, twinklePhase, entranceProgress){
-  const r = radius * entranceProgress; // scale up on entrance
-  const innerR = r * 0.4;
-  const points = 5;
-  const twinkle = 1 + Math.sin(twinklePhase * 8) * 0.08 * entranceProgress;
-  const rr = r * twinkle;
-
-  // Glow
-  const glowSize = rr * (1.8 + Math.sin(twinklePhase*6)*0.2);
-  const grad = ctx.createRadialGradient(x, y, 0, x, y, glowSize);
-  grad.addColorStop(0, `rgba(255,220,50,${0.35*entranceProgress})`);
-  grad.addColorStop(1, 'rgba(255,220,50,0)');
+function drawStar(ctx,x,y,radius,phase,entrance){
+  const r=radius*entrance;
+  const innerR=r*0.4, points=5;
+  const twinkle=1+Math.sin(phase*8)*0.08*entrance;
+  const rr=r*twinkle;
+  const glowSize=rr*(1.8+Math.sin(phase*6)*0.2);
+  const grad=ctx.createRadialGradient(x,y,0,x,y,glowSize);
+  grad.addColorStop(0,'rgba(255,220,50,'+(0.35*entrance)+')');
+  grad.addColorStop(1,'rgba(255,220,50,0)');
   ctx.beginPath();ctx.arc(x,y,glowSize,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
-
-  // Star shape
   ctx.beginPath();
   for(let i=0;i<points*2;i++){
-    const angle = (i*Math.PI/points) - Math.PI/2;
-    const rad = i%2===0 ? rr : innerR;
-    const px = x + Math.cos(angle)*rad;
-    const py = y + Math.sin(angle)*rad;
-    i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    const angle=(i*Math.PI/points)-Math.PI/2;
+    const rad=i%2===0?rr:innerR;
+    const px=x+Math.cos(angle)*rad, py=y+Math.sin(angle)*rad;
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
   }
   ctx.closePath();
-  const starGrad = ctx.createRadialGradient(x, y-rr*0.2, 0, x, y, rr);
-  starGrad.addColorStop(0,'#fff9c4');
-  starGrad.addColorStop(0.4,'#ffd700');
-  starGrad.addColorStop(1,'#ff9f00');
-  ctx.fillStyle=starGrad;
-  ctx.shadowColor='#ffd700';
-  ctx.shadowBlur=20*entranceProgress;
-  ctx.fill();
-  ctx.shadowBlur=0;
-
-  // Shimmer highlight
-  if(entranceProgress>0.8){
-    ctx.beginPath();
-    ctx.arc(x-rr*0.2, y-rr*0.25, rr*0.18, 0, Math.PI*2);
-    ctx.fillStyle=`rgba(255,255,255,${0.6*(entranceProgress-0.8)*5})`;
-    ctx.fill();
+  const sg=ctx.createRadialGradient(x,y-rr*0.2,0,x,y,rr);
+  sg.addColorStop(0,'#fff9c4');sg.addColorStop(0.4,'#ffd700');sg.addColorStop(1,'#ff9f00');
+  ctx.fillStyle=sg;ctx.shadowColor='#ffd700';ctx.shadowBlur=20*entrance;ctx.fill();ctx.shadowBlur=0;
+  if(entrance>0.8){
+    ctx.beginPath();ctx.arc(x-rr*0.2,y-rr*0.25,rr*0.18,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,'+(0.6*(entrance-0.8)*5)+')';ctx.fill();
   }
 }
 
@@ -700,21 +769,13 @@ function startValidation(){
   valPoints=[];
   const W=window.innerWidth,H=window.innerHeight;
   const mx=W*.1,my=H*.1;
-  valPoints=[
-    {x:W/2,  y:H/2},
-    {x:mx,   y:my},
-    {x:W-mx, y:my},
-    {x:W-mx, y:H-my},
-    {x:mx,   y:H-my}
-  ];
+  valPoints=[{x:W/2,y:H/2},{x:mx,y:my},{x:W-mx,y:my},{x:W-mx,y:H-my},{x:mx,y:H-my}];
   valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
   document.getElementById('val-overlay').style.display='block';
   document.getElementById('val-instruction').style.opacity='1';
   document.getElementById('val-badge').style.display='none';
   document.getElementById('val-badge-tot').textContent=valPoints.length;
-
-  // Show intro for VAL_INTRO_MS, then start
-  playChime(528, 0.1, 0.6);
+  playChime(528,0.1,0.6);
   setTimeout(()=>{
     document.getElementById('val-instruction').style.opacity='0';
     setTimeout(()=>{
@@ -722,74 +783,52 @@ function startValidation(){
       document.getElementById('val-badge').style.display='block';
       runStarDot();
     },400);
-  }, VAL_INTRO_MS);
+  },VAL_INTRO_MS);
 }
 
 function runStarDot(){
   if(valIdx>=valPoints.length){finishValidation();return;}
+  const pt=valPoints[valIdx];
+  const valCanvas=document.getElementById('val-canvas');
+  valCanvas.width=window.innerWidth; valCanvas.height=window.innerHeight;
+  const vCtx=valCanvas.getContext('2d');
+  document.getElementById('val-badge-num').textContent=valIdx+1;
+  const notes=[523,659,784,880,1047];
+  playChime(notes[valIdx%notes.length],0.12,0.5);
 
-  const pt = valPoints[valIdx];
-  const valCanvas = document.getElementById('val-canvas');
-  valCanvas.width  = window.innerWidth;
-  valCanvas.height = window.innerHeight;
-  const vCtx = valCanvas.getContext('2d');
-  document.getElementById('val-badge-num').textContent = valIdx+1;
-
-  // Play rising chime – different note for each star so it feels like a game
-  const notes = [523, 659, 784, 880, 1047];
-  playChime(notes[valIdx % notes.length], 0.12, 0.5);
-
-  const collected = [];
-  const ENTRANCE_MS = 220; // springy grow-in duration
-  valStart = performance.now();
-  let sparkled = false;
-
-  // 600ms gap before star appears (eyes settle)
-  let inGap = true;
-  const gapEnd = valStart + VAL_GAP_MS;
+  const collected=[];
+  const ENTRANCE_MS=220;
+  valStart=performance.now();
+  let sparkled=false;
+  let inGap=true;
+  const gapEnd=valStart+VAL_GAP_MS;
 
   function frame(){
-    const now = performance.now();
-    const elapsed = now - valStart;
-
-    vCtx.clearRect(0, 0, valCanvas.width, valCanvas.height);
+    const now=performance.now(), elapsed=now-valStart;
+    vCtx.clearRect(0,0,valCanvas.width,valCanvas.height);
 
     if(inGap){
-      // Gap phase – draw sparkles dying out from previous star
       updateSparkles(vCtx);
-      if(now >= gapEnd){ inGap=false; }
-      valRaf=requestAnimationFrame(frame);
-      return;
+      if(now>=gapEnd) inGap=false;
+      valRaf=requestAnimationFrame(frame); return;
     }
 
-    // Active star phase
-    const starElapsed = now - gapEnd;
-    const starProgress = Math.min(starElapsed / VAL_DWELL_MS, 1);
+    const starElapsed=now-gapEnd;
+    const entrance=Math.min(starElapsed/ENTRANCE_MS,1);
+    let entranceScaled;
+    if(entrance<1){
+      const t=entrance;
+      entranceScaled=1-Math.pow(1-t,3)*Math.cos(t*Math.PI*2.5);
+      entranceScaled=Math.min(entranceScaled,1.12);
+    } else { entranceScaled=1; }
 
-    // Entrance: ease out with slight overshoot (spring)
-    let entrance;
-    const entPct = Math.min(starElapsed / ENTRANCE_MS, 1);
-    if(entPct < 1){
-      // Cubic ease-out with bounce
-      const t = entPct;
-      entrance = 1 - Math.pow(1-t, 3) * Math.cos(t * Math.PI * 2.5);
-      entrance = Math.min(entrance, 1.12); // allow slight overshoot
-    } else {
-      entrance = 1;
-    }
-
-    // Sparkle burst once on arrival
-    if(!sparkled && entPct >= 0.9){
-      spawnSparkles(vCtx, pt.x, pt.y);
-      sparkled=true;
-    }
-
+    if(!sparkled&&entrance>=0.9){spawnSparkles(vCtx,pt.x,pt.y);sparkled=true;}
     updateSparkles(vCtx);
-    drawStar(vCtx, pt.x, pt.y, VAL_STAR_RADIUS, starElapsed*0.001, Math.min(entrance, 1));
+    drawStar(vCtx,pt.x,pt.y,VAL_STAR_RADIUS,starElapsed*0.001,Math.min(entranceScaled,1));
 
-    // Collect gaze samples during the stable window (after 45% of dwell)
-    if(starProgress >= VAL_SAMPLE_START && gazeModel){
-      if(webcam.readyState>=2 && faceLandmarker && webcam.currentTime!==_lastVideoTime){
+    // Collect gaze samples
+    if(starElapsed>=ENTRANCE_MS*0.8&&gazeModel){
+      if(webcam.readyState>=2&&faceLandmarker&&webcam.currentTime!==_lastVideoTime){
         _lastVideoTime=webcam.currentTime;
         try{
           const res=faceLandmarker.detectForVideo(webcam,performance.now());
@@ -809,10 +848,11 @@ function runStarDot(){
       }
     }
 
-    if(starProgress < 1){
-      valRaf=requestAnimationFrame(frame);
-    } else {
-      // Done with this star
+    // Advance when min samples collected OR hard timeout reached
+    const enoughSamples = collected.length >= VAL_MIN_GOOD_SAMPLES;
+    const timedOut = starElapsed >= VAL_MAX_DWELL_MS;
+
+    if(enoughSamples||timedOut){
       if(collected.length>=3){
         const mxs=collected.map(p=>p.px).sort((a,b)=>a-b);
         const mys=collected.map(p=>p.py).sort((a,b)=>a-b);
@@ -820,8 +860,9 @@ function runStarDot(){
         valSamples.push({px:mxs[mid],py:mys[mid],tx:pt.x,ty:pt.y});
       }
       valIdx++;
-      runStarDot();
+      runStarDot(); return;
     }
+    valRaf=requestAnimationFrame(frame);
   }
   valRaf=requestAnimationFrame(frame);
 }
@@ -829,7 +870,6 @@ function runStarDot(){
 function finishValidation(){
   cancelAnimationFrame(valRaf);
   document.getElementById('val-overlay').style.display='none';
-
   if(valSamples.length>=3){
     affineBias=computeAffineCorrection(valSamples);
     const badCalib=Math.abs(affineBias.dx)>300||affineBias.sx>1.4||affineBias.sx<0.7;
@@ -837,9 +877,9 @@ function finishValidation(){
       affineBias={dx:0,dy:0,sx:1,sy:1};
       calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
-      card.querySelector('h2').textContent='⚠️ Let\'s try again!';
-      card.querySelector('p').innerHTML='Child may have looked away – that\'s OK!<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, remind: <strong style="color:#fff">"Watch the bunny!"</strong>';
-      document.getElementById('calib-start-btn').textContent='⚠️ Play Again!';
+      card.querySelector('h2').textContent='\ud83d\udc31 Let\'s try again!';
+      card.querySelector('p').innerHTML='Child may have looked away \u2014 that\'s OK!<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, say: <strong style="color:#fff">"Watch the kitty!"</strong>';
+      document.getElementById('calib-start-btn').textContent='\ud83d\udc31 Play Again!';
       document.getElementById('calib-overlay').style.display='flex';
       phase='calib-ready';return;
     }
@@ -853,12 +893,12 @@ function finishValidation(){
 
 document.getElementById('calib-start-btn').addEventListener('click',()=>{
   document.getElementById('calib-overlay').style.display='none';
-  calibSamples=[];phase='calib-run';startCalibAnim();
+  calibSamples=[];phase='calib-run';startPeekCalib();
 });
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  RECORDING
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function startRecording(){
   sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;
   timerInt=setInterval(()=>{
@@ -893,9 +933,9 @@ document.getElementById('sound-btn').addEventListener('click',()=>{
   document.getElementById('sound-btn').style.display='none';
 });
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  MAIN PROCESSING LOOP
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 let _lastVT=-1;
 function processingLoop(){
   if(phase==='done')return;
@@ -916,7 +956,7 @@ function processingLoop(){
       document.getElementById('d-liX').textContent=`liX[0]: ${f[0].toFixed(4)}  riX[1]: ${f[1].toFixed(4)}`;
       document.getElementById('d-pitch-src').textContent=`src:${mat?.data?'matrix':'z-coord'} EAR:${f[7].toFixed(3)} IOD:${f[8].toFixed(3)}`;
       document.getElementById('d-bias').textContent=`bias dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`;
-      if(gazeModel){const g=predictGaze(f,gazeModel);if(g){document.getElementById('d-py').textContent=`→ pred Y: ${g.y.toFixed(0)}px`;document.getElementById('d-px').textContent=`→ pred X: ${g.x.toFixed(0)}px`;}}
+      if(gazeModel){const g=predictGaze(f,gazeModel);if(g){document.getElementById('d-py').textContent=`+' pred Y: ${g.y.toFixed(0)}px`;document.getElementById('d-px').textContent=`+' pred X: ${g.x.toFixed(0)}px`;}}
     }
     if(phase==='stimulus'){
       document.getElementById('h-face').textContent=hasFace?'Yes':'No';
@@ -929,10 +969,12 @@ function processingLoop(){
       const features=extractFeatures(lm,mat);
       const isBlink=features[7]<0.06;
       if(phase==='calib-run'){
-        const elapsed=performance.now()-calibStart;
-        const pct=Math.min(elapsed/CALIB_MS,1);
-        const idx=Math.floor(pct*(calibPath.length-1));
-        if(calibPath[idx]&&!isBlink) calibSamples.push({feat:features,sx:calibPath[idx][0],sy:calibPath[idx][1]});
+        // Only collect during the STILL phase  -  character is motionless, fixation is stable
+        if(peekPhase==='still'&&peekIdx<peekPoints.length&&!isBlink){
+          const pt=peekPoints[peekIdx];
+          calibSamples.push({feat:features,sx:pt.x,sy:pt.y});
+          peekSamplesThisPoint++;
+        }
       }
       if(phase==='stimulus'&&gazeModel){
         const gaze=isBlink?null:predictGaze(features,gazeModel);
@@ -962,9 +1004,9 @@ function processingLoop(){
   procRaf=requestAnimationFrame(processingLoop);
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  CSV
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 const CSV_HDR=['Unnamed: 0','RecordingTime [ms]','Time of Day [h:m:s:ms]','Trial','Stimulus','Export Start Trial Time [ms]','Export End Trial Time [ms]','Participant','Color','Tracking Ratio [%]','Index Right','Pupil Size Right X [px]','Pupil Size Right Y [px]','Point of Regard Right X [px]','Point of Regard Right Y [px]','Gaze Vector Right X','Gaze Vector Right Y','Gaze Vector Right Z','Eye Position Right X [mm]','Eye Position Right Y [mm]','Eye Position Right Z [mm]','Pupil Position Right X [px]','Pupil Position Right Y [px]','Port Status','Annotation Name','Annotation Description','Annotation Tags','Mouse Position X [px]','Mouse Position Y [px]','Scroll Direction X','Scroll Direction Y','Content'].join(',');
 
 function buildCSV(){
@@ -989,9 +1031,9 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  END SESSION
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 function endSession(){
   if(phase==='done')return;
   phase='done';
@@ -1025,9 +1067,9 @@ document.getElementById('btn-dl').addEventListener('click',()=>{
 });
 document.getElementById('btn-restart').addEventListener('click',()=>location.reload());
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  GOOGLE DRIVE
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 const GDRIVE_CLIENT_ID='864707039212-vosjr7obitpbcd7hjol8d2cvq5d6aj7u.apps.googleusercontent.com';
 const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const GDRIVE_FOLDER='GazeTrack Sessions';
@@ -1042,14 +1084,14 @@ function driveSetStatus(icon,msg,color){
 let _driveFileId=null, _driveFolderId=null;
 
 async function uploadToDrive(csvText,filename){
-  driveSetStatus('☁️','Saving to Google Drive…','var(--border)');
+  driveSetStatus('~,','Saving to Google Drive...','var(--border)');
   try{
     const token=await getGoogleToken();
     _driveFolderId=await findOrCreateFolder(GDRIVE_FOLDER,token);
-    driveSetStatus('⬆️','Uploading…','rgba(0,229,176,0.4)');
+    driveSetStatus('!+,','Uploading...','rgba(0,229,176,0.4)');
     const result=await uploadFile(csvText,filename,_driveFolderId,token);
     _driveFileId=result.id||null;
-    driveSetStatus('✅','Saved! Click "Open in Drive" to view','rgba(0,229,176,0.4)');
+    driveSetStatus('oe...','Saved! Click "Open in Drive" to view','rgba(0,229,176,0.4)');
     const btn=document.getElementById('btn-dl');
     btn.textContent='\u2601\ufe0f Open in Drive';
     btn.style.opacity='1';
@@ -1057,19 +1099,19 @@ async function uploadToDrive(csvText,filename){
   }catch(err){
     if(err.message&&err.message.startsWith('WRONG_ACCOUNT:')){
       const used=err.message.split(':')[1];
-      driveSetStatus('\u26d4','Wrong account: '+used+' – must use '+AUTHORISED_EMAIL,'rgba(255,92,58,0.4)');
+      driveSetStatus('\u26d4','Wrong account: '+used+'  must use '+AUTHORISED_EMAIL,'rgba(255,92,58,0.4)');
       const btn=document.getElementById('btn-dl');
       btn.textContent='\u21ba Retry Upload';btn.style.opacity='1';btn.style.pointerEvents='auto';
-      btn.onclick=()=>{ btn.textContent='\u23f3 Saving…';btn.style.opacity='.45';btn.style.pointerEvents='none'; uploadToDrive(csvData,btn._filename); };
+      btn.onclick=()=>{ btn.textContent='\u23f3 Saving...';btn.style.opacity='.45';btn.style.pointerEvents='none'; uploadToDrive(csvData,btn._filename); };
       btn._filename='gaze_'+META.pid+'_'+META.group+'_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';
     } else {
-      driveSetStatus('\u274c','Drive failed – downloading locally instead','rgba(255,92,58,0.4)');
+      driveSetStatus('\u274c','Drive failed  downloading locally instead','rgba(255,92,58,0.4)');
       downloadCSV();
     }
   }
 }
 
-// ── AUTHORISED ACCOUNT – change this line to update ──
+// AUTHORISED ACCOUNT  change this line to update
 const AUTHORISED_EMAIL = 'aashna.v01@gmail.com';
 
 function getGoogleToken(){
@@ -1091,7 +1133,7 @@ function getGoogleToken(){
             reject(new Error('WRONG_ACCOUNT:'+email));
             return;
           }
-        }catch(e){/* if check fails, allow through – better to save than lose data */}
+        }catch(e){/* if check fails, allow through  better to save than lose data */}
         resolve(resp.access_token);
       }
     });
@@ -1116,9 +1158,9 @@ async function uploadFile(csvText,filename,folderId,token){
   return resp.json();
 }
 
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 //  DEBUG & CLEANUP
-// ════════════════════════════════════════════════════════════
+// ************************************************************
 window.addEventListener('keydown',e=>{
   if(e.key==='d'||e.key==='D'){const p=document.getElementById('debug-panel');p.style.display=p.style.display==='none'?'block':'none';}
 });
