@@ -47,7 +47,7 @@ const CALIB_ATTRACT_MS     = 700;   // box jiggles - draws eye to location
 const CALIB_POPUP_MS       = 350;   // spring-in animation
 const CALIB_STILL_MS       = 1800;  // character holds still - sample window
 const CALIB_BYE_MS         = 250;   // wave goodbye
-const CALIB_GAP_MS_CALIB   = 400;   // blank between points - eyes settle
+const CALIB_GAP_MS         = 400;   // blank between points - eyes settle
 const CALIB_MIN_PT_SAMPLES = 4;     // min gaze samples per point before advancing
 const CALIB_CHAR_R         = 42;    // character radius (px)
 
