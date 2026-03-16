@@ -23,7 +23,31 @@
       <div class="logo-name">Gaze<span>Track</span></div>
     </div>
     <div class="intake-title">New Session Setup</div>
-    <div class="intake-sub">Complete the form below. Live camera feed appears below the environment check for positioning.</div>
+    <div class="intake-sub">Complete the form below. Camera feed is previewed live to confirm positioning before starting.</div>
+  </div>
+
+  <!-- Camera preview -->
+  <div class="cam-card">
+    <div class="cam-preview-wrap">
+      <video id="cam-preview" autoplay playsinline muted></video>
+      <canvas id="cam-canvas"></canvas>
+      <div class="cam-badge">
+        <div class="cam-badge-dot" id="cam-dot"></div>
+        <span id="cam-status-txt">Initialising…</span>
+      </div>
+    </div>
+    <div class="cam-info">
+      <div class="cam-quality">
+        <span>Quality</span>
+        <div class="quality-bar"><div class="quality-fill" id="q-fill"></div></div>
+        <span id="q-pct" style="font-family:var(--mono);font-size:12px">—</span>
+      </div>
+      <div class="cam-checklist">
+        <div class="chk" id="chk-cam">📷 Cam</div>
+        <div class="chk" id="chk-face">👤 Face</div>
+        <div class="chk" id="chk-iris">👁 Iris</div>
+      </div>
+    </div>
   </div>
 
   <!-- ════ POSITION ALL-CLEAR BANNER — appears when child is repositioned correctly ════ -->
@@ -90,24 +114,7 @@
 
   <!-- Preflight -->
   <div id="preflight-panel">
-    <div class="pf-header-row">
-      <div class="section-label" style="margin-bottom:0;">🛫 Environment Check</div>
-      <div class="pf-cam-dots" id="pf-cam-dots">
-        <div class="pf-dot-wrap">
-          <video id="cam-preview" autoplay playsinline muted></video>
-          <canvas id="cam-canvas"></canvas>
-          <div class="pf-dot-badge">
-            <div class="cam-badge-dot" id="cam-dot"></div>
-            <span id="cam-status-txt" style="font-size:9px;font-family:var(--mono);color:#64748b;">…</span>
-          </div>
-        </div>
-        <div class="pf-dot-checks">
-          <div class="chk" id="chk-cam">📷</div>
-          <div class="chk" id="chk-face">👤</div>
-          <div class="chk" id="chk-iris">👁</div>
-        </div>
-      </div>
-    </div>
+    <div class="section-label" style="margin-bottom:6px;">🛫 Environment Check</div>
     <div class="pf-checks">
       <div class="pf-check scanning" id="pfc-cam">
         <div class="pf-check-icon">📷</div>
@@ -134,17 +141,26 @@
     <div class="pf-advice" id="pf-advice"></div>
   </div>
 
-  <!-- Camera preview (below Environment Check) -->
-  <div class="cam-card" style="margin-top:0;margin-bottom:16px;">
-    <div class="cam-label">📷 Live Camera Preview — confirm child positioning</div>
+  <!-- Camera preview — below Environment Check so clinician can verify positioning -->
+  <div class="cam-card">
     <div class="cam-preview-wrap">
-      <video id="cam-preview-full" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block;"></video>
-      <div class="cam-info" style="border-top:1px solid #e2e8f0;background:#f8fafc;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">
-        <div class="cam-quality">
-          <span>Quality</span>
-          <div class="quality-bar"><div class="quality-fill" id="q-fill"></div></div>
-          <span id="q-pct" style="font-family:var(--mono);font-size:12px">—</span>
-        </div>
+      <video id="cam-preview" autoplay playsinline muted></video>
+      <canvas id="cam-canvas"></canvas>
+      <div class="cam-badge">
+        <div class="cam-badge-dot" id="cam-dot"></div>
+        <span id="cam-status-txt">Initialising…</span>
+      </div>
+    </div>
+    <div class="cam-info">
+      <div class="cam-quality">
+        <span>Quality</span>
+        <div class="quality-bar"><div class="quality-fill" id="q-fill"></div></div>
+        <span id="q-pct" style="font-family:var(--mono);font-size:12px">—</span>
+      </div>
+      <div class="cam-checklist">
+        <div class="chk" id="chk-cam">📷 Cam</div>
+        <div class="chk" id="chk-face">👤 Face</div>
+        <div class="chk" id="chk-iris">👁 Iris</div>
       </div>
     </div>
   </div>
@@ -202,8 +218,7 @@
   <div id="val-instruction">
     <span class="val-emoji">⭐</span>
     <h3>Find the Star!</h3>
-    <p>A star will appear on the screen<br>Look at it with your eyes!</p>
-    <p style="font-size:13px;margin-top:10px;opacity:0.6;">(For clinician: each star shows for 5 seconds)</p>
+    <p>Look at each star as it appears</p>
   </div>
   <div id="val-badge">Star <span id="val-badge-num">1</span> of <span id="val-badge-tot">5</span></div>
 </div>
