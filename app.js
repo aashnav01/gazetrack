@@ -1,4 +1,4 @@
-console.log('%c GazeTrack v12 â€” live position all-clear + child-friendly star validation ','background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
+console.log('%c GazeTrack v12 - live position all-clear + child-friendly star validation ','background:#00e5b0;color:#000;font-weight:bold;font-size:13px');
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
 
@@ -15,13 +15,13 @@ const RIGHT_IRIS  = [473,474,475,476];
 const L_CORNERS   = [33,133];
 const R_CORNERS   = [362,263];
 
-// â”€â”€ STAR VALIDATION CONFIG â”€â”€
+// "" STAR VALIDATION CONFIG ""
 // Longer dwell so children have time to locate and fixate each star
-const VAL_DWELL_MS    = 5000;   // ASD/TD: 5 s per star
-const VAL_GAP_MS      = 1200;   // ASD/TD: 1.2 s gap between stars
-const VAL_STAR_RADIUS = 52;     // ASD/TD: very large target
-const VAL_SAMPLE_START= 0.65;   // collect only in last 35%
-const VAL_INTRO_MS    = 3500;   // ASD/TD: longer briefing for clinician
+const VAL_DWELL_MS    = 5000;   // ASD/TD: 5s per star
+const VAL_GAP_MS      = 1200;   // ASD/TD: 1.2s gap
+const VAL_STAR_RADIUS = 52;     // ASD/TD: large target
+const VAL_SAMPLE_START= 0.65;   // collect last 35% only
+const VAL_INTRO_MS    = 3500;   // ASD/TD: longer briefing
 
 // STATE
 let phase = 'intake';
@@ -41,7 +41,7 @@ let calibFacePresent=false;
 let videoBlob=null;
 let META={pid:'',age:'',group:'',clinician:'',location:'',notes:''};
 
-// â”€â”€ POSITION ALL-CLEAR STATE â”€â”€
+// "" POSITION ALL-CLEAR STATE ""
 // Tracks consecutive good-position frames to debounce noise
 let _goodFrameStreak    = 0;
 let _badFrameStreak     = 0;
@@ -74,21 +74,21 @@ function showScreen(n){
   screens[n].classList.add('active');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  POSITION ALL-CLEAR LOGIC
-//  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  """""""""""""""""""""""""""""""""""""""""""""""""""""""""
 //  Runs every preflight frame. Requires that:
-//   â€¢ face detected at good distance (MediaPipe IOD check in previewLoop)
-//   â€¢ lighting is good (brightness pixel check)
-//   â€¢ both true for GOOD_STREAK_NEEDED consecutive frames
+//    -  face detected at good distance (MediaPipe IOD check in previewLoop)
+//    -  lighting is good (brightness pixel check)
+//    -  both true for GOOD_STREAK_NEEDED consecutive frames
 //
 //  When the banner appears it also announces specific checks that
 //  passed so the parent knows exactly what improved.
 //  When position degrades again it hides after BAD_STREAK_HIDE frames
 //  to avoid flickering during small head movements.
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function updateAllClear(bright){
-  // Read directly from pfState â€” no re-computation, single source of truth
+  // Read directly from pfState  -  no re-computation, single source of truth
   const posOk   = pfState.face === 'pass';
   const lightOk = pfState.light === 'pass';
   const allOk   = posOk && lightOk;
@@ -111,7 +111,7 @@ function updateAllClear(bright){
 function showAllClear(bright){
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
-  const tags = ['âœ“ Face visible Â· Good distance', 'âœ“ Lighting OK'];
+  const tags = ['✓ Face visible · Good distance', '✓ Lighting OK'];
   document.getElementById('allclear-tags').innerHTML =
     tags.map(t=>`<span class="allclear-tag">${t}</span>`).join('');
   document.getElementById('allclear-detail').textContent =
@@ -125,9 +125,9 @@ function hideAllClear(){
   allclearBanner.classList.remove('show');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  PRE-FLIGHT â€” pixel analysis, runs during intake
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
+//  PRE-FLIGHT  -  pixel analysis, runs during intake
+// ------------------------------------------------------------
 const pfState={cam:'scanning',face:'scanning',light:'scanning',browser:'scanning'};
 let pfRaf=null;
 let _pfSamples=[], _pfThrottle=0;
@@ -153,22 +153,22 @@ function pfUpdateScore(){
   const fill=document.getElementById('pf-score-fill');
   const pct=document.getElementById('pf-score-pct');
   if(fill){fill.style.width=score+'%';fill.style.background=score>=75?'var(--accent)':score>=50?'var(--gold)':'var(--warn)';}
-  if(pct) pct.textContent=done===total?score+'%':'â€¦';
+  if(pct) pct.textContent=done===total?score+'%':'...';
   const tips=[];
-  if(pfState.light==='fail')  tips.push('<strong>ðŸ’¡ Too dark:</strong> Add a front-facing lamp.');
-  if(pfState.light==='warn')  tips.push('<strong>ðŸ’¡ Lighting:</strong> Brighter room helps iris detection.');
-  if(pfState.face==='fail')   tips.push('<strong>ðŸ‘¤ No face:</strong> Make sure child is in frame, camera at eye level.');
-  if(pfState.browser==='warn')tips.push('<strong>ðŸŒ Browser:</strong> Use Chrome for best webcam performance.');
+  if(pfState.light==='fail')  tips.push('<strong>💡 Too dark:</strong> Add a front-facing lamp.');
+  if(pfState.light==='warn')  tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
+  if(pfState.face==='fail')   tips.push('<strong>👤 No face:</strong> Make sure child is in frame, camera at eye level.');
+  if(pfState.browser==='warn')tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
   const adv=document.getElementById('pf-advice');
   if(adv){adv.innerHTML=tips.join('<br>');adv.className='pf-advice'+(tips.length?' show':'');}
-  // Button label only â€” enabled/disabled is managed solely by checkStartBtn
+  // Button label only  -  enabled/disabled is managed solely by checkStartBtn
   const btn=document.getElementById('start-btn');
   if(!btn.disabled){
     const critFails=['cam','face'].filter(k=>pfState[k]==='fail').length;
-    if(critFails>0){btn.textContent='âš ï¸ Proceed Anyway';btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';}
-    else if(done<total){btn.textContent='Begin Session â†’';btn.style.background='';}
-    else if(score>=75){btn.textContent='âœ… All Clear â€” Begin Session';btn.style.background='';}
-    else{btn.textContent='âš ï¸ Proceed with Warnings';btn.style.background='linear-gradient(135deg,#ca8a04,#a16207)';}
+    if(critFails>0){btn.textContent='⚠ Proceed Anyway';btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)';}
+    else if(done<total){btn.textContent='Begin Session →';btn.style.background='';}
+    else if(score>=75){btn.textContent='✅ All Clear - Begin Session';btn.style.background='';}
+    else{btn.textContent='⚠ Proceed with Warnings';btn.style.background='linear-gradient(135deg,#ca8a04,#a16207)';}
   }
 }
 
@@ -192,12 +192,12 @@ function pfAnalyseFrame(){
     const avgBright=_pfSamples.reduce((a,b)=>a+b,0)/_pfSamples.length;
 
     // Lighting
-    if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`âœ“ Good (${Math.round(avgBright)}/255)`);
-    else if(avgBright<40)                pfSet('light','fail',`âœ— Too dark (${Math.round(avgBright)}) â€” add light`);
-    else if(avgBright<60)                pfSet('light','warn',`âš  Dim (${Math.round(avgBright)}) â€” improve lighting`);
-    else                                 pfSet('light','warn',`âš  Bright (${Math.round(avgBright)}) â€” reduce backlight`);
+    if(avgBright>=60&&avgBright<=220)    pfSet('light','pass',`✓ Good (${Math.round(avgBright)}/255)`);
+    else if(avgBright<40)                pfSet('light','fail',`✗ Too dark (${Math.round(avgBright)}) - add light`);
+    else if(avgBright<60)                pfSet('light','warn',`⚠ Dim (${Math.round(avgBright)}) - improve lighting`);
+    else                                 pfSet('light','warn',`⚠ Bright (${Math.round(avgBright)}) - reduce backlight`);
 
-    // â”€â”€ Live all-clear update (lighting only â€” position driven by MediaPipe in previewLoop) â”€â”€
+    // "" Live all-clear update (lighting only  -  position driven by MediaPipe in previewLoop) ""
     updateAllClear(avgBright);
 
   }catch(e){}
@@ -209,15 +209,15 @@ function pfCheckBrowser(){
   const isChrome=/Chrome/.test(ua)&&!/Edg/.test(ua)&&!/OPR/.test(ua);
   const isEdge=/Edg/.test(ua);
   const isFirefox=/Firefox/.test(ua);
-  if(isChrome)       pfSet('browser','pass','âœ“ Chrome â€” optimal');
-  else if(isEdge)    pfSet('browser','pass','âœ“ Edge â€” good');
-  else if(isFirefox) pfSet('browser','warn','âš  Firefox â€” use Chrome for best results');
-  else               pfSet('browser','warn','âš  Use Chrome for best results');
+  if(isChrome)       pfSet('browser','pass','✓ Chrome - optimal');
+  else if(isEdge)    pfSet('browser','pass','✓ Edge - good');
+  else if(isFirefox) pfSet('browser','warn','⚠ Firefox - use Chrome for best results');
+  else               pfSet('browser','warn','⚠ Use Chrome for best results');
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  CAMERA INIT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 async function initCamera(){
   try{
     const stream=await navigator.mediaDevices.getUserMedia({
@@ -229,19 +229,19 @@ async function initCamera(){
     document.getElementById('cam-dot').classList.add('ok');
     document.getElementById('cam-status-txt').textContent='Camera active';
     document.getElementById('chk-cam').classList.add('ok');
-    document.getElementById('chk-cam').textContent='âœ“ Cam';
+    document.getElementById('chk-cam').textContent='✓ Cam';
     const t=stream.getVideoTracks()[0].getSettings();
     const w=t.width||640, h=t.height||480;
-    pfSet('cam','pass',`âœ“ ${w}Ã—${h}`);
+    pfSet('cam','pass',`✓ ${w}x${h}`);
     checkStartBtn();
     pfRaf=requestAnimationFrame(pfAnalyseFrame);
     pfCheckBrowser();
     loadPreviewDetector();
   }catch(e){
-    document.getElementById('cam-status-txt').textContent='âœ— Camera error â€” allow access';
-    pfSet('cam','fail','âœ— Camera denied or not found');
-    pfSet('face','fail','âœ— No camera');
-    pfSet('light','fail','âœ— No camera');
+    document.getElementById('cam-status-txt').textContent='✗ Camera error - allow access';
+    pfSet('cam','fail','✗ Camera denied or not found');
+    pfSet('face','fail','✗ No camera');
+    pfSet('light','fail','✗ No camera');
   }
 }
 
@@ -279,13 +279,13 @@ function previewLoop(){
         const lm=res.faceLandmarks[0];
         const hasIris=!!(lm[468]&&lm[473]);
         document.getElementById('chk-face').classList.add('ok');
-        document.getElementById('chk-face').textContent='âœ“ Face';
+        document.getElementById('chk-face').textContent='✓ Face';
         document.getElementById('chk-iris').classList.toggle('ok',hasIris);
-        document.getElementById('chk-iris').textContent=hasIris?'âœ“ Iris':'ðŸ‘ Iris';
+        document.getElementById('chk-iris').textContent=hasIris?'✓ Iris':'👁 Iris';
 
-        // â”€â”€ MediaPipe-driven Position & Distance check â”€â”€
+        // "" MediaPipe-driven Position & Distance check ""
         // iodNorm = inter-ocular distance in normalised 0-1 space
-        // Reliable regardless of lighting/skin tone â€” pure geometry
+        // Reliable regardless of lighting/skin tone  -  pure geometry
         if(hasIris){
           const iodNorm=Math.hypot(lm[473].x-lm[468].x,lm[473].y-lm[468].y);
           const faceCX=(lm[33].x+lm[263].x)/2; // horizontal face centre (0=left,1=right)
@@ -300,26 +300,26 @@ function previewLoop(){
           // >0.22 = very close (<35cm), 0.13-0.22 = good (40-70cm),
           // 0.07-0.13 = far (70-100cm), <0.07 = very far / small face
           if(iodNorm>0.22)
-            pfSet('face','warn',`âš  Too close (IOD ${iodNorm.toFixed(3)}) â€” move back ~15 cm`);
+            pfSet('face','warn',`⚠ Too close (IOD ${iodNorm.toFixed(3)})  -  move back ~15 cm`);
           else if(iodNorm>=0.13)
             pfSet('face','pass', offCentre
-              ? `âœ“ Good distance Â· Move slightly to centre`
-              : `âœ“ Face visible Â· Good distance (~50â€“70 cm)`);
+              ? `✓ Good distance  -  Move slightly to centre`
+              : `✓ Face visible  -  Good distance (~50 - 70 cm)`);
           else if(iodNorm>=0.07)
-            pfSet('face','warn',`âš  Too far (IOD ${iodNorm.toFixed(3)}) â€” move ${offCentre?'closer & to centre':'~20 cm closer'}`);
+            pfSet('face','warn',`⚠ Too far (IOD ${iodNorm.toFixed(3)})  -  move ${offCentre?'closer & to centre':'~20 cm closer'}`);
           else
-            pfSet('face','warn',`âš  Very far or face at edge â€” move much closer`);
+            pfSet('face','warn',`⚠ Very far or face at edge  -  move much closer`);
         } else {
-          // Face found but no iris â€” can still give useful feedback
+          // Face found but no iris  -  can still give useful feedback
           document.getElementById('q-fill').style.width='40%';
           document.getElementById('q-pct').textContent='40%';
-          pfSet('face','warn','âš  Face detected but iris not visible â€” look at camera');
+          pfSet('face','warn','⚠ Face detected but iris not visible  -  look at camera');
         }
       }else{
-        document.getElementById('chk-face').classList.remove('ok');document.getElementById('chk-face').textContent='ðŸ‘¤ Face';
-        document.getElementById('chk-iris').classList.remove('ok');document.getElementById('chk-iris').textContent='ðŸ‘ Iris';
-        document.getElementById('q-fill').style.width='0%';document.getElementById('q-pct').textContent='â€”';
-        pfSet('face','fail','âœ— No face detected â€” check camera position');
+        document.getElementById('chk-face').classList.remove('ok');document.getElementById('chk-face').textContent='👤 Face';
+        document.getElementById('chk-iris').classList.remove('ok');document.getElementById('chk-iris').textContent='👁 Iris';
+        document.getElementById('q-fill').style.width='0%';document.getElementById('q-pct').textContent=' - ';
+        pfSet('face','fail','✗ No face detected  -  check camera position');
       }
     }catch(e){}
   }
@@ -331,19 +331,19 @@ function drawPreviewMesh(lm){
   const fx=x=>(1-x)*W, fy=y=>y*H;
   [[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33],[362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362]].forEach(pts=>{
     camCtx.beginPath();pts.forEach((idx,i)=>{const p=lm[idx];i===0?camCtx.moveTo(fx(p.x),fy(p.y)):camCtx.lineTo(fx(p.x),fy(p.y));});
-    camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=0.4;camCtx.globalAlpha=0.22;camCtx.stroke();camCtx.globalAlpha=1;
+    camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=0.4;camCtx.globalAlpha=0.2;camCtx.stroke();camCtx.globalAlpha=1;
   });
   [[468,469],[473,474]].forEach(([c,e])=>{
     if(!lm[c]||!lm[e])return;
     const cx=fx(lm[c].x),cy=fy(lm[c].y),ex2=fx(lm[e].x),ey2=fy(lm[e].y);
     const r=Math.hypot(ex2-cx,ey2-cy)+0.5;
-    camCtx.beginPath();camCtx.arc(cx,cy,r,0,Math.PI*2);camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=0.6;camCtx.globalAlpha=0.32;camCtx.stroke();camCtx.globalAlpha=1;
+    camCtx.beginPath();camCtx.arc(cx,cy,r,0,Math.PI*2);camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=0.6;camCtx.globalAlpha=0.3;camCtx.stroke();camCtx.globalAlpha=1;
   });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  FORM
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function checkStartBtn(){
   const pidOk=document.getElementById('f-pid').value.trim().length>0;
   const groupOk=document.querySelector('input[name="group"]:checked')!==null;
@@ -358,7 +358,7 @@ document.getElementById('video-input').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   videoBlob=URL.createObjectURL(f);
   document.getElementById('video-hint').style.display='none';
-  document.getElementById('video-drop').insertAdjacentHTML('beforeend',`<div class="chosen">âœ“ ${f.name}</div>`);
+  document.getElementById('video-drop').insertAdjacentHTML('beforeend',`<div class="chosen">✓ ${f.name}</div>`);
 });
 
 document.getElementById('start-btn').addEventListener('click',()=>{
@@ -377,16 +377,16 @@ document.getElementById('start-btn').addEventListener('click',()=>{
 
 initCamera();
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  SESSION START
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 async function beginSession(){
   try{
     if(previewFl){
       faceLandmarker=previewFl;
-      document.getElementById('load-msg').textContent='Model ready â€” starting cameraâ€¦';
+      document.getElementById('load-msg').textContent='Model ready  -  starting camera...';
     }else{
-      document.getElementById('load-msg').textContent='Loading eye tracking modelâ€¦';
+      document.getElementById('load-msg').textContent='Loading eye tracking model...';
       const resolver=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
       faceLandmarker=await FaceLandmarker.createFromOptions(resolver,{
         baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
@@ -404,7 +404,7 @@ async function beginSession(){
     procRaf=requestAnimationFrame(processingLoop);
   }catch(err){
     console.error(err);
-    document.getElementById('load-msg').textContent='âŒ '+(err.message||'Startup error');
+    document.getElementById('load-msg').textContent=' '+(err.message||'Startup error');
   }
 }
 
@@ -413,9 +413,9 @@ function resizeCanvases(){
   calibCanvas.height=gazeCanvas.height=window.innerHeight;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  FEATURE EXTRACTION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function extractFeatures(lm,mat){
   const avg=ids=>{const s={x:0,y:0,z:0};ids.forEach(i=>{s.x+=lm[i].x;s.y+=lm[i].y;s.z+=(lm[i].z||0);});return{x:s.x/ids.length,y:s.y/ids.length,z:s.z/ids.length};};
   const li=avg(LEFT_IRIS),ri=avg(RIGHT_IRIS);
@@ -440,9 +440,9 @@ function extractFeatures(lm,mat){
   return[liX,riX,vertMain,foreheadY,irisY,(li.y+ri.y)/2,avgX,ear,iod];
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  RIDGE REGRESSION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function poly(f){return[1,...f.slice(0,7)];}
 function ridgeFit(X,y,alpha=RIDGE_ALPHA){
   const n=X[0].length;
@@ -475,9 +475,9 @@ function predictGaze(feat,model){
   return{x:Math.max(0,Math.min(window.innerWidth,cx)),y:Math.max(0,Math.min(window.innerHeight,cy))};
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  AFFINE BIAS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function computeAffineCorrection(pairs){
   function linfit(ps,ts){
     const n=ps.length,mp=ps.reduce((a,b)=>a+b,0)/n,mt=ts.reduce((a,b)=>a+b,0)/n;
@@ -492,9 +492,9 @@ function computeAffineCorrection(pairs){
   return{sx:fx.s,dx:fx.d,sy:fy.s,dy:fy.d};
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  CALIBRATION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function buildCalibPath(){
   const W=window.innerWidth,H=window.innerHeight;
   const safeX=Math.max(80,W*.14), safeY=Math.max(70,H*.14);
@@ -515,8 +515,8 @@ let bci=0,bct=0;
 
 function drawCat(x,y,t,happy){
   const ctx=calibCtx;
-  const r=Math.round(Math.max(36, Math.min(window.innerWidth,window.innerHeight)*0.072));
-  const bob=Math.sin(t*4)*(r*0.14), cy=y+bob;
+  const r=Math.round(Math.max(36,Math.min(window.innerWidth,window.innerHeight)*0.072));
+  const bob=Math.sin(t*4)*(r*0.14),cy=y+bob;
   const{body,stripe}=CAT_COLS[bci];
   ctx.save();ctx.globalAlpha=0.13;ctx.beginPath();ctx.ellipse(x,cy+r+4,r*0.85,r*0.22,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
   [[-r*0.42,-r*1.1],[r*0.42,-r*1.1]].forEach(([dx])=>{
@@ -545,13 +545,13 @@ function drawCat(x,y,t,happy){
   ctx.strokeStyle=stripe;ctx.lineWidth=1.5;ctx.stroke();
 }
 
-// â”€â”€ Shared audio context â”€â”€
+// "" Shared audio context ""
 let _audioCtx=null;
 function getAudioCtx(){if(!_audioCtx){try{_audioCtx=new AudioContext();}catch(e){}}return _audioCtx;}
 
 const calibSound=(()=>{return()=>{const a=getAudioCtx();if(!a)return;const o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(0,a.currentTime);g.gain.linearRampToValueAtTime(0.15,a.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.3);o.start();o.stop(a.currentTime+0.3);};})();
 
-// â”€â”€ Star sound â€” rising chime â”€â”€
+// "" Star sound  -  rising chime ""
 function playChime(freq, vol, duration){
   const a=getAudioCtx();if(!a)return;
   const o=a.createOscillator(),g=a.createGain();
@@ -574,12 +574,8 @@ function startCalibAnim(){
     if(phase!=='calib-run')return;
     const elapsed=performance.now()-calibStart;
     const pct=Math.min(elapsed/CALIB_MS,1);
-    const _dpr=window.devicePixelRatio||1, _cw=window.innerWidth, _ch=window.innerHeight;
-    if(calibCanvas.width!==Math.round(_cw*_dpr)){
-      calibCanvas.width=Math.round(_cw*_dpr); calibCanvas.height=Math.round(_ch*_dpr);
-      calibCanvas.style.width=_cw+"px"; calibCanvas.style.height=_ch+"px";
-      calibCtx.setTransform(_dpr,0,0,_dpr,0,0);
-    }
+    const _dpr=window.devicePixelRatio||1,_cw=window.innerWidth,_ch=window.innerHeight;
+    if(calibCanvas.width!==Math.round(_cw*_dpr)){calibCanvas.width=Math.round(_cw*_dpr);calibCanvas.height=Math.round(_ch*_dpr);calibCanvas.style.width=_cw+"px";calibCanvas.style.height=_ch+"px";calibCtx.setTransform(_dpr,0,0,_dpr,0,0);}
     calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
     const idx=Math.floor(pct*(calibPath.length-1));
     if(calibPath[idx]){
@@ -602,9 +598,9 @@ function finaliseCalib(){
   gazeModel=trainModel(calibSamples);
   if(!gazeModel){
     const card=document.getElementById('calib-card');
-    card.querySelector('h2').textContent='âš ï¸ Calibration incomplete';
+    card.querySelector('h2').textContent='⚠ Calibration incomplete';
     card.querySelector('p').textContent=`Only ${calibSamples.length} samples (need ${MIN_SAMPLES}). Please retry.`;
-    document.getElementById('calib-start-btn').textContent='â†º Retry';
+    document.getElementById('calib-start-btn').textContent='↺ Retry';
     document.getElementById('calib-overlay').style.display='flex';
     calibSamples=[];phase='calib-ready';return;
   }
@@ -612,22 +608,22 @@ function finaliseCalib(){
   startValidation();
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  STAR VALIDATION â€” child-friendly redesign
-//  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ------------------------------------------------------------
+//  STAR VALIDATION  -  child-friendly redesign
+//  """""""""""""""""""""""""""""""""""""""""""""""""""""""""
 //  Key changes vs original 1200ms dot approach:
-//  â€¢ 2800ms dwell (2.3Ã— longer) â€” children need time to locate target
-//  â€¢ 600ms gap between stars â€” eyes need to settle after each saccade
-//  â€¢ 36px radius stars â€” much larger, easier to see peripherally
-//  â€¢ Springy entrance animation (scale 0â†’1 in 200ms with overshoot)
-//  â€¢ Sparkle particle burst on arrival â€” draws attention naturally
-//  â€¢ Twinkling shimmer during dwell â€” keeps child engaged on target
-//  â€¢ Rising chime sound on each star â€” audio cue aids attention
-//  â€¢ "Find the Star!" intro screen â€” parent instruction before first star
-//  â€¢ Star count badge â€” "Star 2 of 5" â€” progress visible to clinician
-//  â€¢ Collection window starts at 45% of dwell (1260ms in) â€” skip
+//   -  2800ms dwell (2.3x longer)  -  children need time to locate target
+//   -  600ms gap between stars  -  eyes need to settle after each saccade
+//   -  36px radius stars  -  much larger, easier to see peripherally
+//   -  Springy entrance animation (scale 0→1 in 200ms with overshoot)
+//   -  Sparkle particle burst on arrival  -  draws attention naturally
+//   -  Twinkling shimmer during dwell  -  keeps child engaged on target
+//   -  Rising chime sound on each star  -  audio cue aids attention
+//   -  "Find the Star!" intro screen  -  parent instruction before first star
+//   -  Star count badge  -  "Star 2 of 5"  -  progress visible to clinician
+//   -  Collection window starts at 45% of dwell (1260ms in)  -  skip
 //    the initial saccade movement time, collect stable fixation only
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 
 // Particle system for sparkle bursts
 const VAL_PARTICLES = [];
@@ -706,7 +702,7 @@ let _lastVideoTime=-1;
 function startValidation(){
   valPoints=[];
   const W=window.innerWidth,H=window.innerHeight;
-  const safeVX=Math.max(80,W*.16), safeVY=Math.max(80,H*.16);
+  const safeVX=Math.max(80,W*.16),safeVY=Math.max(80,H*.16);
   valPoints=[
     {x:W/2,       y:H/2},
     {x:safeVX,    y:safeVY},
@@ -740,18 +736,18 @@ function runStarDot(){
   const _dprV=window.devicePixelRatio||1;
   valCanvas.width=Math.round(window.innerWidth*_dprV);
   valCanvas.height=Math.round(window.innerHeight*_dprV);
-  valCanvas.style.width=window.innerWidth+"px";
-  valCanvas.style.height=window.innerHeight+"px";
+  valCanvas.style.width=window.innerWidth+'px';
+  valCanvas.style.height=window.innerHeight+'px';
   const vCtx=valCanvas.getContext('2d');
   vCtx.scale(_dprV,_dprV);
   document.getElementById('val-badge-num').textContent = valIdx+1;
 
-  // Play rising chime â€” different note for each star so it feels like a game
+  // Play rising chime  -  different note for each star so it feels like a game
   const notes = [523, 659, 784, 880, 1047];
   playChime(notes[valIdx % notes.length], 0.12, 0.5);
 
   const collected = [];
-  const ENTRANCE_MS = 450; // slower entrance for ASD/TD children
+  const ENTRANCE_MS = 450; // slower entrance for ASD/TD
   valStart = performance.now();
   let sparkled = false;
 
@@ -766,7 +762,7 @@ function runStarDot(){
     vCtx.clearRect(0, 0, valCanvas.width, valCanvas.height);
 
     if(inGap){
-      // Gap phase â€” draw sparkles dying out from previous star
+      // Gap phase  -  draw sparkles dying out from previous star
       updateSparkles(vCtx);
       if(now >= gapEnd){ inGap=false; }
       valRaf=requestAnimationFrame(frame);
@@ -848,9 +844,9 @@ function finishValidation(){
       affineBias={dx:0,dy:0,sx:1,sy:1};
       calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
-      card.querySelector('h2').textContent='ðŸ° Let\'s try again!';
-      card.querySelector('p').innerHTML='Child may have looked away â€” that\'s OK!<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, remind: <strong style="color:#fff">"Watch the bunny!"</strong>';
-      document.getElementById('calib-start-btn').textContent='ðŸ° Play Again!';
+      card.querySelector('h2').textContent='🐰 Let\'s try again!';
+      card.querySelector('p').innerHTML='Child may have looked away  -  that\'s OK!<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, remind: <strong style="color:#fff">"Watch the bunny!"</strong>';
+      document.getElementById('calib-start-btn').textContent='🐰 Play Again!';
       document.getElementById('calib-overlay').style.display='flex';
       phase='calib-ready';return;
     }
@@ -867,9 +863,9 @@ document.getElementById('calib-start-btn').addEventListener('click',()=>{
   calibSamples=[];phase='calib-run';startCalibAnim();
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  RECORDING
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function startRecording(){
   sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;
   timerInt=setInterval(()=>{
@@ -904,9 +900,9 @@ document.getElementById('sound-btn').addEventListener('click',()=>{
   document.getElementById('sound-btn').style.display='none';
 });
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  MAIN PROCESSING LOOP
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 let _lastVT=-1;
 function processingLoop(){
   if(phase==='done')return;
@@ -927,7 +923,7 @@ function processingLoop(){
       document.getElementById('d-liX').textContent=`liX[0]: ${f[0].toFixed(4)}  riX[1]: ${f[1].toFixed(4)}`;
       document.getElementById('d-pitch-src').textContent=`src:${mat?.data?'matrix':'z-coord'} EAR:${f[7].toFixed(3)} IOD:${f[8].toFixed(3)}`;
       document.getElementById('d-bias').textContent=`bias dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`;
-      if(gazeModel){const g=predictGaze(f,gazeModel);if(g){document.getElementById('d-py').textContent=`â†’ pred Y: ${g.y.toFixed(0)}px`;document.getElementById('d-px').textContent=`â†’ pred X: ${g.x.toFixed(0)}px`;}}
+      if(gazeModel){const g=predictGaze(f,gazeModel);if(g){document.getElementById('d-py').textContent=`→ pred Y: ${g.y.toFixed(0)}px`;document.getElementById('d-px').textContent=`→ pred X: ${g.x.toFixed(0)}px`;}}
     }
     if(phase==='stimulus'){
       document.getElementById('h-face').textContent=hasFace?'Yes':'No';
@@ -973,9 +969,9 @@ function processingLoop(){
   procRaf=requestAnimationFrame(processingLoop);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  CSV
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 const CSV_HDR=['Unnamed: 0','RecordingTime [ms]','Time of Day [h:m:s:ms]','Trial','Stimulus','Export Start Trial Time [ms]','Export End Trial Time [ms]','Participant','Color','Tracking Ratio [%]','Index Right','Pupil Size Right X [px]','Pupil Size Right Y [px]','Point of Regard Right X [px]','Point of Regard Right Y [px]','Gaze Vector Right X','Gaze Vector Right Y','Gaze Vector Right Z','Eye Position Right X [mm]','Eye Position Right Y [mm]','Eye Position Right Z [mm]','Pupil Position Right X [px]','Pupil Position Right Y [px]','Port Status','Annotation Name','Annotation Description','Annotation Tags','Mouse Position X [px]','Mouse Position Y [px]','Scroll Direction X','Scroll Direction Y','Content'].join(',');
 
 function buildCSV(){
@@ -1000,9 +996,9 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  END SESSION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 function endSession(){
   if(phase==='done')return;
   phase='done';
@@ -1025,7 +1021,7 @@ function endSession(){
     <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>`;
   showScreen('done');
   const ts2=new Date().toISOString().replace(/[:.]/g,'-');
-  setTimeout(()=>uploadToDrive(csvData,`gaze_${META.pid}_${META.group}_${ts2}.csv`),600);
+  setTimeout(()=>uploadToMongo(csvData,`gaze_${META.pid}_${META.group}_${ts2}.csv`),600);
 }
 
 document.getElementById('end-btn').addEventListener('click',endSession);
@@ -1036,12 +1032,12 @@ document.getElementById('btn-dl').addEventListener('click',()=>{
 });
 document.getElementById('btn-restart').addEventListener('click',()=>location.reload());
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  GOOGLE DRIVE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-const GDRIVE_CLIENT_ID='864707039212-vosjr7obitpbcd7hjol8d2cvq5d6aj7u.apps.googleusercontent.com';
-const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
-const GDRIVE_FOLDER='GazeTrack Sessions';
+// ------------------------------------------------------------
+//  MONGODB UPLOAD
+//  POST session data to your backend API -> saved to MongoDB.
+//  Deploy server.js alongside your site, then set the URL below.
+// ------------------------------------------------------------
+const MONGO_API_URL = 'https://YOUR_BACKEND_URL/api/sessions'; // <-- set this to your backend
 
 function driveSetStatus(icon,msg,color){
   const el=document.getElementById('drive-status');if(!el)return;
@@ -1050,86 +1046,34 @@ function driveSetStatus(icon,msg,color){
   el.style.borderColor=color||'var(--border)';
 }
 
-let _driveFileId=null, _driveFolderId=null;
-
-async function uploadToDrive(csvText,filename){
-  driveSetStatus('â˜ï¸','Saving to Google Driveâ€¦','var(--border)');
+async function uploadToMongo(csvText,filename){
+  driveSetStatus('☁️','Saving to database...','var(--border)');
   try{
-    const token=await getGoogleToken();
-    _driveFolderId=await findOrCreateFolder(GDRIVE_FOLDER,token);
-    driveSetStatus('â¬†ï¸','Uploadingâ€¦','rgba(0,229,176,0.4)');
-    const result=await uploadFile(csvText,filename,_driveFolderId,token);
-    _driveFileId=result.id||null;
-    driveSetStatus('âœ…','Saved! Click "Open in Drive" to view','rgba(0,229,176,0.4)');
+    const resp=await fetch(MONGO_API_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        filename, pid:META.pid, age:META.age, group:META.group,
+        clinician:META.clinician, location:META.location, notes:META.notes,
+        timestamp:new Date().toISOString(), csv:csvText
+      })
+    });
+    if(!resp.ok) throw new Error('Server '+resp.status);
+    driveSetStatus('✅','Saved to database!','rgba(0,229,176,0.4)');
     const btn=document.getElementById('btn-dl');
-    btn.textContent='\u2601\ufe0f Open in Drive';
-    btn.style.opacity='1';
-    btn.style.pointerEvents='auto';
+    btn.textContent='✅ Saved - click to download locally';
+    btn.style.opacity='1'; btn.style.pointerEvents='auto';
+    btn.onclick=()=>downloadCSV();
   }catch(err){
-    if(err.message&&err.message.startsWith('WRONG_ACCOUNT:')){
-      const used=err.message.split(':')[1];
-      driveSetStatus('\u26d4','Wrong account: '+used+' â€” must use '+AUTHORISED_EMAIL,'rgba(255,92,58,0.4)');
-      const btn=document.getElementById('btn-dl');
-      btn.textContent='\u21ba Retry Upload';btn.style.opacity='1';btn.style.pointerEvents='auto';
-      btn.onclick=()=>{ btn.textContent='\u23f3 Savingâ€¦';btn.style.opacity='.45';btn.style.pointerEvents='none'; uploadToDrive(csvData,btn._filename); };
-      btn._filename='gaze_'+META.pid+'_'+META.group+'_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';
-    } else {
-      driveSetStatus('\u274c','Drive failed â€” downloading locally instead','rgba(255,92,58,0.4)');
-      downloadCSV();
-    }
+    driveSetStatus('❌','Database save failed - downloading locally','rgba(255,92,58,0.4)');
+    downloadCSV();
   }
 }
 
-// â”€â”€ AUTHORISED ACCOUNT â€” change this line to update â”€â”€
-const AUTHORISED_EMAIL = 'aashna.v01@gmail.com';
 
-function getGoogleToken(){
-  return new Promise((resolve,reject)=>{
-    if(!window.google){reject(new Error('Google Identity Services not loaded'));return;}
-    const client=window.google.accounts.oauth2.initTokenClient({
-      client_id:GDRIVE_CLIENT_ID,
-      scope:GDRIVE_SCOPE+' https://www.googleapis.com/auth/userinfo.email',
-      prompt:'',
-      hint:AUTHORISED_EMAIL,
-      callback:async (resp)=>{
-        if(resp.error){reject(new Error(resp.error));return;}
-        // Verify the signed-in account matches the authorised email
-        try{
-          const info=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',
-            {headers:{Authorization:'Bearer '+resp.access_token}});
-          const {email}=await info.json();
-          if(email.toLowerCase()!==AUTHORISED_EMAIL.toLowerCase()){
-            reject(new Error('WRONG_ACCOUNT:'+email));
-            return;
-          }
-        }catch(e){/* if check fails, allow through â€” better to save than lose data */}
-        resolve(resp.access_token);
-      }
-    });
-    client.requestAccessToken();
-  });
-}
-
-async function findOrCreateFolder(name,token){
-  const q=encodeURIComponent(`name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const res=await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`,{headers:{Authorization:`Bearer ${token}`}});
-  const data=await res.json();
-  if(data.files&&data.files.length>0)return data.files[0].id;
-  const create=await fetch('https://www.googleapis.com/drive/v3/files',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder'})});
-  return(await create.json()).id;
-}
-
-async function uploadFile(csvText,filename,folderId,token){
-  const boundary='-------GazeTrackBoundary';
-  const body=`\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name:filename,parents:[folderId]})}\r\n--${boundary}\r\nContent-Type: text/csv\r\n\r\n${csvText}\r\n--${boundary}--`;
-  const resp=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':`multipart/related; boundary="${boundary}"`},body});
-  if(!resp.ok)throw new Error(`Upload failed: ${resp.status}`);
-  return resp.json();
-}
-
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 //  DEBUG & CLEANUP
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ------------------------------------------------------------
 window.addEventListener('keydown',e=>{
   if(e.key==='d'||e.key==='D'){const p=document.getElementById('debug-panel');p.style.display=p.style.display==='none'?'block':'none';}
 });
@@ -1137,10 +1081,6 @@ window.addEventListener('beforeunload',()=>{
   if(sessionStream)sessionStream.getTracks().forEach(t=>t.stop());
   if(camStream)camStream.getTracks().forEach(t=>t.stop());
 });
-// Rebuild calibration path if tablet is rotated or window resized
-window.addEventListener('resize', () => {
-  if(phase==='calib-run'){
-    calibPath = buildCalibPath();
-    calibStart = performance.now();
-  }
-});
+
+// Rebuild calibration path on tablet rotation/resize
+window.addEventListener('resize',()=>{ if(phase==='calib-run'){ calibPath=buildCalibPath(); calibStart=performance.now(); } });
