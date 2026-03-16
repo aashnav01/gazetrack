@@ -26,7 +26,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 }
 .screen.active{display:flex}
 
-/* ════════════ SCREEN 1 – INTAKE (Light Clinical Theme) ════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 1 â€” INTAKE (Light Clinical Theme) â•â•â•â•â•â•â•â•â•â•â•â• */
 #s-intake{
   background:#f0f4f8;
   overflow-y:auto;
@@ -60,7 +60,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .chk{font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(239,68,68,.08);color:#dc2626;border:1px solid rgba(239,68,68,.2);font-family:var(--mono);transition:all .2s;}
 .chk.ok{background:rgba(13,148,136,.08);color:#0d9488;border-color:rgba(13,148,136,.25);}
 
-/* ════ POSITION ALL-CLEAR BANNER ════ */
+/* â•â•â•â• POSITION ALL-CLEAR BANNER â•â•â•â• */
 #position-allclear{
   display:none;
   margin:0 18px 14px;
@@ -143,14 +143,14 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .pf-advice.show{display:block;}
 .pf-advice strong{color:#dc2626;}
 
-/* ════════════ SCREEN 2 – LOADING ════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 2 â€” LOADING â•â•â•â•â•â•â•â•â•â•â•â• */
 #s-loading{background:var(--ink);gap:20px;}
 .load-ring{width:56px;height:56px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
 .load-msg{font-size:14px;color:var(--muted);font-family:var(--mono);}
 .load-title{font-size:22px;font-weight:700;color:#fff;}
 
-/* ════════════ SCREEN 3 – CALIBRATION ════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 3 â€” CALIBRATION â•â•â•â•â•â•â•â•â•â•â•â• */
 #s-calib{background:#0e1018;}
 #calib-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;}
 #calib-overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:10;background:rgba(10,12,16,.88);backdrop-filter:blur(6px);}
@@ -160,7 +160,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 .calib-start-btn{padding:15px 40px;border-radius:50px;border:none;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;font-weight:800;font-size:16px;font-family:var(--sans);cursor:pointer;box-shadow:0 4px 20px rgba(0,229,176,.35);transition:transform .15s;}
 .calib-start-btn:hover{transform:scale(1.04);}
 
-/* ════════════ VALIDATION OVERLAY – STAR APPROACH ════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â• VALIDATION OVERLAY â€” STAR APPROACH â•â•â•â•â•â•â•â•â•â•â•â• */
 /* Full-screen dark overlay, child-friendly animated stars */
 #val-overlay{
   display:none;
@@ -196,7 +196,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 }
 #val-badge span{color:#fff;font-weight:700;}
 
-/* ════════════ SCREEN 4 – STIMULUS ════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 4 â€” STIMULUS â•â•â•â•â•â•â•â•â•â•â•â• */
 #s-stimulus{background:#000;align-items:stretch;justify-content:stretch;}
 #stim-video{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;z-index:1;background:#000;}
 #gaze-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;background:transparent;}
@@ -222,7 +222,7 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 #sound-btn{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:25px;padding:11px 24px;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;z-index:10;display:none;animation:fadeUp .4s ease both;}
 @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}}
 
-/* ════════════ SCREEN 5 – DONE ════════════ */
+/* â•â•â•â•â•â•â•â•â•â•â•â• SCREEN 5 â€” DONE â•â•â•â•â•â•â•â•â•â•â•â• */
 #s-done{background:var(--ink);gap:20px;padding:40px;text-align:center;}
 .done-icon{font-size:72px;animation:pop .5s cubic-bezier(.17,.67,.26,1.4) both;}
 @keyframes pop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
@@ -240,3 +240,154 @@ html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--text);fo
 #debug-panel{display:none;position:fixed;bottom:60px;left:12px;background:rgba(0,0,0,.9);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;font-family:var(--mono);font-size:11px;color:#00ff88;line-height:2;z-index:9999;min-width:280px;}
 #debug-panel .dbg-title{color:var(--accent);font-weight:600;margin-bottom:4px;}
 #webcam{position:fixed;width:1px;height:1px;opacity:0;top:0;left:0;}
+/* ══ PF HEADER ROW — label + tiny cam dots side by side ══ */
+.pf-header-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:10px;
+  gap:12px;
+}
+
+/* Tiny live camera dot cluster beside Environment Check label */
+.pf-cam-dots{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
+}
+
+/* The small circular camera preview */
+.pf-dot-wrap{
+  position:relative;
+  width:44px;
+  height:44px;
+  border-radius:50%;
+  overflow:hidden;
+  border:2px solid #cbd5e1;
+  background:#e2e8f0;
+  flex-shrink:0;
+  box-shadow:0 1px 4px rgba(0,0,0,.08);
+}
+.pf-dot-wrap video{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  transform:scaleX(-1);
+}
+.pf-dot-wrap canvas{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+}
+/* Tiny status dot in bottom-right of circle */
+.pf-dot-badge{
+  position:absolute;
+  bottom:2px;
+  right:2px;
+  display:flex;
+  align-items:center;
+  gap:2px;
+}
+
+/* Status indicator dot reused */
+.cam-badge-dot{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:#ef4444;
+  border:1.5px solid #fff;
+  flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(0,0,0,.1);
+}
+.cam-badge-dot.ok{background:#0d9488;}
+
+/* Compact icon-only check chips beside the dot */
+.pf-dot-checks{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.pf-dot-checks .chk{
+  font-size:10px;
+  padding:2px 5px;
+  border-radius:12px;
+  background:rgba(239,68,68,.08);
+  color:#dc2626;
+  border:1px solid rgba(239,68,68,.2);
+  font-family:var(--mono);
+  transition:all .2s;
+  white-space:nowrap;
+  line-height:1.4;
+}
+.pf-dot-checks .chk.ok{
+  background:rgba(13,148,136,.08);
+  color:#0d9488;
+  border-color:rgba(13,148,136,.25);
+}
+
+/* ══ Full camera card below preflight ══ */
+.cam-card{
+  background:#ffffff;
+  border:1px solid #cbd5e1;
+  border-radius:16px;
+  overflow:hidden;
+  margin-bottom:28px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.cam-card .cam-label{
+  padding:8px 16px 0;
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  color:#64748b;
+  font-family:var(--mono);
+}
+.cam-preview-wrap{
+  position:relative;
+  aspect-ratio:4/3;
+  background:#e2e8f0;
+  overflow:hidden;
+}
+#cam-preview-full{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  transform:scaleX(-1);
+  display:block;
+}
+.cam-info{
+  padding:10px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  border-top:1px solid #e2e8f0;
+  background:#f8fafc;
+}
+.cam-quality{display:flex;align-items:center;gap:8px;font-size:12px;color:#64748b;}
+.quality-bar{height:5px;width:80px;background:#e2e8f0;border-radius:3px;overflow:hidden;}
+.quality-fill{height:100%;background:#0d9488;border-radius:3px;width:0%;transition:width .3s;}
+
+/* Remove old .cam-checklist (now in pf-dot-checks) */
+.cam-checklist{display:none;}
+
+/* Ensure hidden cam-preview inside dot wrap is fully clipped */
+#cam-preview{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;transform:scaleX(-1);display:block;
+}
+#cam-canvas{
+  position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+}
+
+/* Val overlay: slower, child-friendly star timing already in JS;
+   make intro text bigger and more inviting */
+#val-instruction .val-emoji{font-size:88px;animation-duration:1.4s;}
+#val-instruction h3{font-size:34px;}
+#val-instruction p{font-size:18px;}
+#val-badge{font-size:15px;padding:10px 26px;}
