@@ -1025,11 +1025,7 @@ function endSession(){
 }
 
 document.getElementById('end-btn').addEventListener('click',endSession);
-document.getElementById('btn-dl').addEventListener('click',()=>{
-  if(_driveFileId) window.open('https://drive.google.com/file/d/'+_driveFileId+'/view','_blank');
-  else if(_driveFolderId) window.open('https://drive.google.com/drive/folders/'+_driveFolderId,'_blank');
-  else window.open('https://drive.google.com','_blank');
-});
+document.getElementById('btn-dl').addEventListener('click',()=>{ downloadCSV(); });
 document.getElementById('btn-restart').addEventListener('click',()=>location.reload());
 
 // ------------------------------------------------------------
@@ -1037,7 +1033,8 @@ document.getElementById('btn-restart').addEventListener('click',()=>location.rel
 //  POST session data to your backend API -> saved to MongoDB.
 //  Deploy server.js alongside your site, then set the URL below.
 // ------------------------------------------------------------
-const MONGO_API_URL = 'https://gazetrack-api.onrender.com/api/sessions';
+const MONGO_API_URL = 'https://gazetrack-api.onrender.com//api/sessions'; // <-- set this to your backend
+
 function driveSetStatus(icon,msg,color){
   const el=document.getElementById('drive-status');if(!el)return;
   document.getElementById('drive-icon').textContent=icon;
