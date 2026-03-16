@@ -1,8 +1,9 @@
-# Copy this file to .env and fill in your values
+# Rename this file to .env and fill in your values
 # Never commit .env to git
 
-# Get this from MongoDB Atlas -> Connect -> Drivers
+# MongoDB Atlas connection string
+# Get from: Atlas dashboard -> Connect -> Drivers
 MONGODB_URI=mongodb+srv://youruser:yourpassword@yourcluster.mongodb.net/gazetrack?retryWrites=true&w=majority
 
-# Port for the API server (Render/Railway set this automatically)
+# Port (Render/Railway set this automatically)
 PORT=3001
