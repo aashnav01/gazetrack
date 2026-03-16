@@ -15,13 +15,13 @@ const RIGHT_IRIS  = [473,474,475,476];
 const L_CORNERS   = [33,133];
 const R_CORNERS   = [362,263];
 
-// -- STAR VALIDATION CONFIG -- (tuned for ASD + TD children ages 3-10)
-// Long dwell + gap so children have ample time to locate and fixate each star
-const VAL_DWELL_MS    = 5000;   // ASD/TD: 5s per star (was 2800ms)
-const VAL_GAP_MS      = 1200;   // ASD/TD: 1.2s gap between stars (was 600ms)
-const VAL_STAR_RADIUS = 52;     // ASD/TD: very large target (was 36px)
-const VAL_SAMPLE_START= 0.65;   // collect last 35% only (stable fixation)
-const VAL_INTRO_MS    = 3500;   // ASD/TD: longer parent briefing (was 2000ms)
+// â”€â”€ STAR VALIDATION CONFIG â”€â”€
+// Longer dwell so children have time to locate and fixate each star
+const VAL_DWELL_MS    = 5000;   // ASD/TD: 5 s per star
+const VAL_GAP_MS      = 1200;   // ASD/TD: 1.2 s gap between stars
+const VAL_STAR_RADIUS = 52;     // ASD/TD: very large target
+const VAL_SAMPLE_START= 0.65;   // collect only in last 35%
+const VAL_INTRO_MS    = 3500;   // ASD/TD: longer briefing for clinician
 
 // STATE
 let phase = 'intake';
@@ -59,8 +59,7 @@ const screens={
   done:     document.getElementById('s-done'),
 };
 const camPreview  = document.getElementById('cam-preview');
-const camPreview  = document.getElementById('cam-preview');
-const camPreviewFull = document.getElementById('cam-preview-full');
+const camCanvas   = document.getElementById('cam-canvas');
 const camCtx      = camCanvas.getContext('2d');
 const calibCanvas = document.getElementById('calib-canvas');
 const calibCtx    = calibCanvas.getContext('2d');
@@ -227,7 +226,6 @@ async function initCamera(){
     camStream=stream;
     camPreview.srcObject=stream;
     camPreview.play();
-    if(camPreviewFull){camPreviewFull.srcObject=stream;camPreviewFull.play();}
     document.getElementById('cam-dot').classList.add('ok');
     document.getElementById('cam-status-txt').textContent='Camera active';
     document.getElementById('chk-cam').classList.add('ok');
@@ -333,14 +331,13 @@ function drawPreviewMesh(lm){
   const fx=x=>(1-x)*W, fy=y=>y*H;
   [[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33],[362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362]].forEach(pts=>{
     camCtx.beginPath();pts.forEach((idx,i)=>{const p=lm[idx];i===0?camCtx.moveTo(fx(p.x),fy(p.y)):camCtx.lineTo(fx(p.x),fy(p.y));});
-    camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=1.5;camCtx.globalAlpha=0.7;camCtx.stroke();camCtx.globalAlpha=1;
+    camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=0.4;camCtx.globalAlpha=0.22;camCtx.stroke();camCtx.globalAlpha=1;
   });
   [[468,469],[473,474]].forEach(([c,e])=>{
     if(!lm[c]||!lm[e])return;
     const cx=fx(lm[c].x),cy=fy(lm[c].y),ex2=fx(lm[e].x),ey2=fy(lm[e].y);
-    const r=Math.hypot(ex2-cx,ey2-cy)+1;
-    camCtx.beginPath();camCtx.arc(cx,cy,r,0,Math.PI*2);camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=2;camCtx.globalAlpha=0.9;camCtx.stroke();camCtx.globalAlpha=1;
-    camCtx.beginPath();camCtx.arc(cx,cy,2,0,Math.PI*2);camCtx.fillStyle='#00e5b0';camCtx.fill();
+    const r=Math.hypot(ex2-cx,ey2-cy)+0.5;
+    camCtx.beginPath();camCtx.arc(cx,cy,r,0,Math.PI*2);camCtx.strokeStyle='#00e5b0';camCtx.lineWidth=0.6;camCtx.globalAlpha=0.32;camCtx.stroke();camCtx.globalAlpha=1;
   });
 }
 
@@ -500,7 +497,8 @@ function computeAffineCorrection(pairs){
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function buildCalibPath(){
   const W=window.innerWidth,H=window.innerHeight;
-  const mx=W/2,my=H/2,px=W*.08,py=H*.08;
+  const safeX=Math.max(80,W*.14), safeY=Math.max(70,H*.14);
+  const mx=W/2,my=H/2,px=safeX,py=safeY;
   const wpts=[[mx,py,3],[W-px,py,3],[W-px,my,2],[W-px,H-py,3],[mx,H-py,3],[px,H-py,3],[px,my,2],[px,py,3],[mx,py,2],[mx,my,2],[W-px,my,1],[mx,H-py,2],[px,my,1],[mx,py,2],[mx,my,1]];
   const totalW=wpts.reduce((s,w)=>s+w[2],0),totalSteps=900,pts=[];
   for(let wi=0;wi<wpts.length-1;wi++){
@@ -516,7 +514,9 @@ const CAT_COLS=[{body:'#F8D7E3',stripe:'#E8A0B8'},{body:'#D7EAF8',stripe:'#90BDE
 let bci=0,bct=0;
 
 function drawCat(x,y,t,happy){
-  const ctx=calibCtx,r=36,bob=Math.sin(t*4)*5,cy=y+bob;
+  const ctx=calibCtx;
+  const r=Math.round(Math.max(36, Math.min(window.innerWidth,window.innerHeight)*0.072));
+  const bob=Math.sin(t*4)*(r*0.14), cy=y+bob;
   const{body,stripe}=CAT_COLS[bci];
   ctx.save();ctx.globalAlpha=0.13;ctx.beginPath();ctx.ellipse(x,cy+r+4,r*0.85,r*0.22,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
   [[-r*0.42,-r*1.1],[r*0.42,-r*1.1]].forEach(([dx])=>{
@@ -574,7 +574,12 @@ function startCalibAnim(){
     if(phase!=='calib-run')return;
     const elapsed=performance.now()-calibStart;
     const pct=Math.min(elapsed/CALIB_MS,1);
-    calibCanvas.width=window.innerWidth;calibCanvas.height=window.innerHeight;
+    const _dpr=window.devicePixelRatio||1, _cw=window.innerWidth, _ch=window.innerHeight;
+    if(calibCanvas.width!==Math.round(_cw*_dpr)){
+      calibCanvas.width=Math.round(_cw*_dpr); calibCanvas.height=Math.round(_ch*_dpr);
+      calibCanvas.style.width=_cw+"px"; calibCanvas.style.height=_ch+"px";
+      calibCtx.setTransform(_dpr,0,0,_dpr,0,0);
+    }
     calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
     const idx=Math.floor(pct*(calibPath.length-1));
     if(calibPath[idx]){
@@ -701,13 +706,13 @@ let _lastVideoTime=-1;
 function startValidation(){
   valPoints=[];
   const W=window.innerWidth,H=window.innerHeight;
-  const mx=W*.1,my=H*.1;
+  const safeVX=Math.max(80,W*.16), safeVY=Math.max(80,H*.16);
   valPoints=[
-    {x:W/2,  y:H/2},
-    {x:mx,   y:my},
-    {x:W-mx, y:my},
-    {x:W-mx, y:H-my},
-    {x:mx,   y:H-my}
+    {x:W/2,       y:H/2},
+    {x:safeVX,    y:safeVY},
+    {x:W-safeVX,  y:safeVY},
+    {x:W-safeVX,  y:H-safeVY},
+    {x:safeVX,    y:H-safeVY}
   ];
   valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
   document.getElementById('val-overlay').style.display='block';
@@ -732,9 +737,13 @@ function runStarDot(){
 
   const pt = valPoints[valIdx];
   const valCanvas = document.getElementById('val-canvas');
-  valCanvas.width  = window.innerWidth;
-  valCanvas.height = window.innerHeight;
-  const vCtx = valCanvas.getContext('2d');
+  const _dprV=window.devicePixelRatio||1;
+  valCanvas.width=Math.round(window.innerWidth*_dprV);
+  valCanvas.height=Math.round(window.innerHeight*_dprV);
+  valCanvas.style.width=window.innerWidth+"px";
+  valCanvas.style.height=window.innerHeight+"px";
+  const vCtx=valCanvas.getContext('2d');
+  vCtx.scale(_dprV,_dprV);
   document.getElementById('val-badge-num').textContent = valIdx+1;
 
   // Play rising chime â€” different note for each star so it feels like a game
@@ -742,7 +751,7 @@ function runStarDot(){
   playChime(notes[valIdx % notes.length], 0.12, 0.5);
 
   const collected = [];
-  const ENTRANCE_MS = 450; // ASD/TD: slower springy grow-in (was 220ms)
+  const ENTRANCE_MS = 450; // slower entrance for ASD/TD children
   valStart = performance.now();
   let sparkled = false;
 
@@ -1127,4 +1136,11 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('beforeunload',()=>{
   if(sessionStream)sessionStream.getTracks().forEach(t=>t.stop());
   if(camStream)camStream.getTracks().forEach(t=>t.stop());
+});
+// Rebuild calibration path if tablet is rotated or window resized
+window.addEventListener('resize', () => {
+  if(phase==='calib-run'){
+    calibPath = buildCalibPath();
+    calibStart = performance.now();
+  }
 });
