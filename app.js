@@ -1037,8 +1037,7 @@ document.getElementById('btn-restart').addEventListener('click',()=>location.rel
 //  POST session data to your backend API -> saved to MongoDB.
 //  Deploy server.js alongside your site, then set the URL below.
 // ------------------------------------------------------------
-const MONGO_API_URL = 'https://YOUR_BACKEND_URL/api/sessions'; // <-- set this to your backend
-
+const MONGO_API_URL = 'https://gazetrack-api.onrender.com/api/sessions';
 function driveSetStatus(icon,msg,color){
   const el=document.getElementById('drive-status');if(!el)return;
   document.getElementById('drive-icon').textContent=icon;
