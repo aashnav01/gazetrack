@@ -1,5 +1,5 @@
 /**
- * GazeTrack v14 – Tablet‑Optimised
+ * GazeTrack v14 – Tablet‑Optimised (Child‑Proof Edition)
  * =============================================================================
  * - Full SMI RED‑format CSV output with Fixation/Saccade/Blink classification
  * - Child‑friendly "balloon animal" calibration: gaze‑contingent, animated,
@@ -14,9 +14,18 @@
  * - NEW: welfare metadata written into CSV comment line
  * - Tablet‑ready: touch events, responsive sizing, orientation handling,
  *   throttled MediaPipe, large touch targets.
+ *
+ * 🧸 CHILD‑PROOF ENHANCEMENTS:
+ *   - Larger gaze radius (250px)
+ *   - Force‑skip timer fixed (moves to next animal even if child doesn't look)
+ *   - Blink forgiveness (200ms grace period before resetting hold)
+ *   - Gap animation (pulsing ring)
+ *   - Skip button appears after 1 failed attempt
+ *   - Reduced calibration points (5 instead of 9)
+ *   - Shortened validation (3 stars, shorter dwell)
  */
 
-console.log('%c GazeTrack v14 (Tablet)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v14 (Tablet - Child Proof)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -29,10 +38,12 @@ const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent) || (wind
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const CALIB_DWELL_MS    = 2200;   // ms child must gaze at each animal before sample taken
-const CALIB_GAZE_RADIUS = 180;    // px — how close gaze must be to trigger sample
+// 🧸 Increased gaze radius for forgiveness
+const CALIB_GAZE_RADIUS = 250;    // px — how close gaze must be to trigger sample (was 180)
 const CALIB_GAZE_HOLD   = 600;    // ms gaze must stay on target before sampling starts
 const CALIB_SAMPLE_MS   = 800;    // ms of samples collected per point
-const CALIB_TOTAL_PTS   = 9;      // 9-point grid for better accuracy
+// 🧸 Reduced number of calibration points (5 instead of 9)
+const CALIB_TOTAL_PTS   = 5;      // 5-point grid (centre + four corners)
 const CALIB_GAP_MS      = 700;    // ms between points
 const MIN_SAMPLES       = 25;
 const RIDGE_ALPHA       = 0.01;
@@ -42,12 +53,12 @@ const RIGHT_IRIS  = [473,474,475,476];
 const L_CORNERS   = [33,133];
 const R_CORNERS   = [362,263];
 
-// Validation
-const VAL_DWELL_MS    = 4500;
-const VAL_GAP_MS      = 900;
+// Validation – 🧸 shortened for kids
+const VAL_DWELL_MS    = 3000;       // was 4500
+const VAL_GAP_MS      = 600;        // was 900
 const VAL_STAR_RADIUS = 48;
 const VAL_SAMPLE_START= 0.60;
-const VAL_INTRO_MS    = 3000;
+const VAL_INTRO_MS    = 2000;       // was 3000
 
 // Position all-clear
 const GOOD_STREAK_NEEDED = 8;
@@ -672,7 +683,7 @@ function computeAffineCorrection(pairs) {
 //  CHILD-FRIENDLY CALIBRATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// 9-point grid built at runtime
+// 🧸 5-point grid built at runtime (centre + four corners)
 function buildCalibPoints() {
   const W = window.innerWidth, H = window.innerHeight;
   const mx = W/2, my = H/2;
@@ -683,24 +694,17 @@ function buildCalibPoints() {
     {x:W-px,    y:py      }, // top-right
     {x:W-px,    y:H-py    }, // bottom-right
     {x:px,      y:H-py    }, // bottom-left
-    {x:mx,      y:py      }, // top-centre
-    {x:W-px,    y:my      }, // mid-right
-    {x:mx,      y:H-py    }, // bottom-centre
-    {x:px,      y:my      }, // mid-left
   ];
 }
 
-const ANIMALS = ['cat','rabbit','bear','frog','duck','owl','fox','elephant','penguin'];
+// 🧸 Only 5 animals for 5 points
+const ANIMALS = ['cat','rabbit','bear','frog','duck'];
 const ANIMAL_PALETTES = [
   {body:'#f4a261',ear:'#e76f51',eye:'#264653',bg:'#e9c46a'},   // cat
   {body:'#e9c46a',ear:'#f4a261',eye:'#264653',bg:'#90e0ef'},   // rabbit
   {body:'#a8dadc',ear:'#457b9d',eye:'#1d3557',bg:'#f1faee'},   // bear
   {body:'#95d5b2',ear:'#52b788',eye:'#1b4332',bg:'#d8f3dc'},   // frog
   {body:'#ffd166',ear:'#ef476f',eye:'#073b4c',bg:'#06d6a0'},   // duck
-  {body:'#c77dff',ear:'#7b2d8b',eye:'#240046',bg:'#e0aaff'},   // owl
-  {body:'#ff6b6b',ear:'#c9184a',eye:'#590d22',bg:'#ffb3c1'},   // fox
-  {body:'#adb5bd',ear:'#6c757d',eye:'#212529',bg:'#dee2e6'},   // elephant
-  {body:'#4cc9f0',ear:'#4361ee',eye:'#03045e',bg:'#90e0ef'},   // penguin
 ];
 
 function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
@@ -739,9 +743,8 @@ function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
   ctx.fillStyle = pal.body; ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 2; ctx.stroke();
 
-  // Animal-specific details (simplified for space – same as v13)
-  // ... (draw ears, whiskers, etc.) – omitted for brevity, but keep your existing code
-  // For full implementation, insert the detailed drawAnimal from v13 here.
+  // Animal-specific details (simplified for space – keep your existing code)
+  // ... (draw ears, whiskers, etc.) – insert your detailed drawing here.
 
   // Eyes (universal)
   [-0.28, 0.28].forEach(ex => {
@@ -800,9 +803,9 @@ function startCalib() {
   const prog = document.getElementById('calib-progress');
   if (prog) { prog.style.display = 'flex'; updateCalibProgress(); }
 
-  // Show/hide skip button based on fail count
+  // 🧸 Show skip button after only 1 failed attempt (was 2)
   const skipBtn = document.getElementById('calib-skip-btn');
-  if (skipBtn) skipBtn.style.display = calibFailCount >= 2 ? 'inline-block' : 'none';
+  if (skipBtn) skipBtn.style.display = calibFailCount >= 1 ? 'inline-block' : 'none';
 
   const dpr = window.devicePixelRatio || 1;
   calibCanvas.width  = Math.round(window.innerWidth  * dpr);
@@ -858,10 +861,14 @@ function advanceCalibPoint() {
     calibState = 'showing';
     _calibPointStart = performance.now();
     playAnimalJingle(calibIdx);
-    // Skip if child hasn't looked within 4s
+    // 🧸 FIX: Force move to next point after 4s even if child hasn't looked
     _calibSkipTimer = setTimeout(() => {
       if (calibState !== 'done-point') {
-        commitCalibPoint(); // force move to next point
+        // Directly advance to next point
+        if (calibIdx < calibPoints.length) {
+          calibIdx++;
+          advanceCalibPoint();
+        }
       }
     }, 4000);
   }, CALIB_GAP_MS);
@@ -878,6 +885,21 @@ function runCalibLoop() {
     const dpr = window.devicePixelRatio || 1;
     calibCtx.clearRect(0, 0, calibCanvas.width / dpr, calibCanvas.height / dpr);
     updateCalibParticles(calibCtx);
+
+    // 🧸 Gap animation
+    if (calibState === 'gap') {
+      const gapElapsed = now - _calibGapStart;
+      const progress = Math.min(gapElapsed / CALIB_GAP_MS, 1);
+      const centerX = calibCanvas.width / dpr / 2;
+      const centerY = calibCanvas.height / dpr / 2;
+      calibCtx.beginPath();
+      calibCtx.arc(centerX, centerY, 30 + 20 * Math.sin(progress * Math.PI * 2), 0, 2 * Math.PI);
+      calibCtx.strokeStyle = '#00e5b0';
+      calibCtx.lineWidth = 4;
+      calibCtx.globalAlpha = 1 - progress;
+      calibCtx.stroke();
+      calibCtx.globalAlpha = 1;
+    }
 
     if (calibState === 'showing' || calibState === 'holding' || calibState === 'sampling') {
       const pt = calibPoints[calibIdx];
@@ -903,7 +925,8 @@ function runCalibLoop() {
         _calibHoldStart = now;
       }
       if (calibState === 'holding') {
-        if (!gazeNear) {
+        // 🧸 Blink forgiveness: only reset if gaze lost for >200ms
+        if (!gazeNear && (now - _calibHoldStart) > 200) {
           calibState = 'showing';
           _calibHoldStart = null;
         } else if (now - _calibHoldStart >= CALIB_GAZE_HOLD) {
@@ -989,7 +1012,8 @@ function finaliseCalib() {
       `<strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, ` +
       `<strong style="color:#fff">"Look at the animal!"</strong>`;
     document.getElementById('calib-start-btn').textContent = '🐾 Try Again!';
-    if (calibFailCount >= 2) {
+    // 🧸 Show skip button after 1 failure (already handled in startCalib, but ensure here too)
+    if (calibFailCount >= 1) {
       document.getElementById('calib-skip-btn').style.display = 'inline-block';
     }
     document.getElementById('calib-overlay').style.display = 'flex';
@@ -1025,7 +1049,7 @@ document.getElementById('calib-start-btn').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  STAR VALIDATION (unchanged)
+//  STAR VALIDATION (shortened)
 // ═══════════════════════════════════════════════════════════════════════════════
 function spawnSparkles(ctx, x, y) {
   for (let i = 0; i < 14; i++) {
@@ -1081,12 +1105,11 @@ function startValidation() {
   valPoints = [];
   const W = window.innerWidth, H = window.innerHeight;
   const safeVX = Math.max(80, W*.16), safeVY = Math.max(80, H*.16);
+  // 🧸 Reduced validation points: centre, top-left, bottom-right
   valPoints = [
     {x:W/2,      y:H/2},
     {x:safeVX,   y:safeVY},
-    {x:W-safeVX, y:safeVY},
-    {x:W-safeVX, y:H-safeVY},
-    {x:safeVX,   y:H-safeVY}
+    {x:W-safeVX, y:H-safeVY}
   ];
   valIdx = 0; valSamples = []; VAL_PARTICLES.length = 0;
   prevGaze = null; prevGazeTime = null;
@@ -1120,7 +1143,7 @@ function runStarDot() {
   vCtx.scale(dpr, dpr);
   document.getElementById('val-badge-num').textContent = valIdx + 1;
 
-  const notes = [523,659,784,880,1047];
+  const notes = [523,659,784];
   playChime(notes[valIdx % notes.length], 0.12, 0.5);
 
   const collected = [];
