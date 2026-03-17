@@ -3,26 +3,24 @@
  * =============================================================================
  * - Full SMI RED‑format CSV output with Fixation/Saccade/Blink classification
  * - Child‑friendly "balloon animal" calibration: gaze‑contingent, animated,
- *   sound‑paired, 9‑point grid per research best practices
- * - FIX: calibration now uses raw iris heuristic when model not yet trained
- * - FIX: cancelAnimationFrame ordering
- * - FIX: prevent double commit in calibration
- * - NEW: "Skip calibration" button appears after two failed attempts
- * - NEW: context‑aware retry tips
+ *   sound‑paired, 5‑point grid (centre + four corners)
+ * - FIX: null style error guarded
+ * - NEW: confetti shower after every successfully collected calibration point
+ * - NEW: dynamic gaze radius (larger at corners for easier child participation)
+ * - NEW: "Skip calibration" button appears after one failed attempt
  * - NEW: child welfare monitor (blink rate, slow blinks, head movement, face‑off %)
- * - NEW: welfare stats shown in HUD during stimulus and on done screen
- * - NEW: welfare metadata written into CSV comment line
  * - Tablet‑ready: touch events, responsive sizing, orientation handling,
  *   throttled MediaPipe, large touch targets.
  *
  * 🧸 CHILD‑PROOF ENHANCEMENTS:
- *   - Larger gaze radius (250px)
+ *   - Larger gaze radius (250‑350px, corner‑adaptive)
  *   - Force‑skip timer fixed (moves to next animal even if child doesn't look)
  *   - Blink forgiveness (200ms grace period before resetting hold)
  *   - Gap animation (pulsing ring)
  *   - Skip button appears after 1 failed attempt
  *   - Reduced calibration points (5 instead of 9)
  *   - Shortened validation (3 stars, shorter dwell)
+ *   - Confetti celebration after each successful animal
  */
 
 console.log('%c GazeTrack v14 (Tablet - Child Proof)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
@@ -38,11 +36,9 @@ const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent) || (wind
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const CALIB_DWELL_MS    = 2200;   // ms child must gaze at each animal before sample taken
-// 🧸 Increased gaze radius for forgiveness
-const CALIB_GAZE_RADIUS = 250;    // px — how close gaze must be to trigger sample (was 180)
+const CALIB_GAZE_RADIUS = 250;    // base radius; will be increased at corners
 const CALIB_GAZE_HOLD   = 600;    // ms gaze must stay on target before sampling starts
 const CALIB_SAMPLE_MS   = 800;    // ms of samples collected per point
-// 🧸 Reduced number of calibration points (5 instead of 9)
 const CALIB_TOTAL_PTS   = 5;      // 5-point grid (centre + four corners)
 const CALIB_GAP_MS      = 700;    // ms between points
 const MIN_SAMPLES       = 25;
@@ -53,7 +49,7 @@ const RIGHT_IRIS  = [473,474,475,476];
 const L_CORNERS   = [33,133];
 const R_CORNERS   = [362,263];
 
-// Validation – 🧸 shortened for kids
+// Validation – shortened for kids
 const VAL_DWELL_MS    = 3000;       // was 4500
 const VAL_GAP_MS      = 600;        // was 900
 const VAL_STAR_RADIUS = 48;
@@ -154,19 +150,17 @@ const welfareHead     = document.getElementById('welfare-head');
 const welfareFaceOff  = document.getElementById('welfare-faceoff');
 
 function showScreen(n) {
-  Object.values(screens).forEach(s => s.classList.remove('active'));
-  screens[n].classList.add('active');
+  Object.values(screens).forEach(s => s && s.classList.remove('active'));
+  const scr = screens[n];
+  if (scr) scr.classList.add('active');
 }
 
 // ─── TABLET TOUCH ADAPTATIONS ─────────────────────────────────────────────────
-// Disable page zoom/scroll on canvases
 [calibCanvas, gazeCanvas, camCanvas].forEach(canvas => {
   if (canvas) canvas.style.touchAction = 'none';
 });
-
-// Make buttons large enough for fat‑finger touch
 document.querySelectorAll('button, .clickable').forEach(el => {
-  if (IS_TABLET) el.style.minHeight = '48px';
+  if (IS_TABLET && el) el.style.minHeight = '48px';
 });
 
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
@@ -175,7 +169,6 @@ function getAudioCtx() {
   if (!_audioCtx) { try { _audioCtx = new AudioContext(); } catch(e) {} }
   return _audioCtx;
 }
-
 function playTone(freq, vol, duration, type='sine', detune=0) {
   const a = getAudioCtx(); if (!a) return;
   const o = a.createOscillator(), g = a.createGain();
@@ -186,7 +179,6 @@ function playTone(freq, vol, duration, type='sine', detune=0) {
   g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + duration);
   o.start(); o.stop(a.currentTime + duration);
 }
-
 function playAnimalJingle(noteIndex) {
   const scales = [
     [523,659,784,1047],
@@ -200,13 +192,11 @@ function playAnimalJingle(noteIndex) {
     setTimeout(() => playTone(f, 0.09, 0.18, 'sine'), i * 55);
   });
 }
-
 function playSuccessChime() {
   [784, 1047, 1319].forEach((f, i) => {
     setTimeout(() => playTone(f, 0.1, 0.3, 'sine'), i * 80);
   });
 }
-
 function playChime(freq, vol, duration) {
   const a = getAudioCtx(); if (!a) return;
   const o = a.createOscillator(), g = a.createGain();
@@ -218,6 +208,38 @@ function playChime(freq, vol, duration) {
   g.gain.linearRampToValueAtTime(vol, a.currentTime + 0.05);
   g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + duration);
   o.start(); o.stop(a.currentTime + duration);
+}
+
+// 🎉 Confetti shower
+function startConfetti() {
+  const confettiCount = 100;
+  const colors = ['#f4a261', '#e9c46a', '#90e0ef', '#ffb3c1', '#c77dff', '#ff6b6b', '#4cc9f0'];
+  for (let i = 0; i < confettiCount; i++) {
+    setTimeout(() => {
+      const conf = document.createElement('div');
+      conf.className = 'confetti';
+      conf.style.cssText = `
+        position: fixed; top: -10px; left: ${Math.random() * 100}vw; width: 10px; height: 10px;
+        background: ${colors[Math.floor(Math.random() * colors.length)]};
+        border-radius: 50%; z-index: 9999; pointer-events: none;
+        transform: rotate(${Math.random() * 360}deg);
+        animation: fall ${3 + Math.random() * 2}s linear forwards;
+      `;
+      document.body.appendChild(conf);
+      setTimeout(() => conf.remove(), 5000);
+    }, i * 20);
+  }
+}
+// Add CSS once
+if (!document.getElementById('confetti-style')) {
+  const style = document.createElement('style');
+  style.id = 'confetti-style';
+  style.innerHTML = `
+    @keyframes fall {
+      to { transform: translateY(110vh) rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 // ─── POSITION ALL-CLEAR ───────────────────────────────────────────────────────
@@ -240,22 +262,20 @@ function updateAllClear(bright) {
     }
   }
 }
-
 function showAllClear(bright) {
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
   const tags = ['✓ Face visible · Good distance', '✓ Lighting OK'];
-  document.getElementById('allclear-tags').innerHTML =
-    tags.map(t => `<span class="allclear-tag">${t}</span>`).join('');
-  document.getElementById('allclear-detail').textContent =
-    `Brightness ${Math.round(bright)}/255`;
-  allclearBanner.classList.add('show');
+  const tagsEl = document.getElementById('allclear-tags');
+  if (tagsEl) tagsEl.innerHTML = tags.map(t => `<span class="allclear-tag">${t}</span>`).join('');
+  const detailEl = document.getElementById('allclear-detail');
+  if (detailEl) detailEl.textContent = `Brightness ${Math.round(bright)}/255`;
+  if (allclearBanner) allclearBanner.classList.add('show');
   playChime(660, 0.08, 0.4);
 }
-
 function hideAllClear() {
   _allclearShowing = false;
-  allclearBanner.classList.remove('show');
+  if (allclearBanner) allclearBanner.classList.remove('show');
 }
 
 // ─── PRE-FLIGHT ───────────────────────────────────────────────────────────────
@@ -263,12 +283,12 @@ function pfSet(id, state, msg) {
   pfState[id] = state;
   const card = document.getElementById('pfc-' + id);
   const stat = document.getElementById('pfc-' + id + '-s');
-  if (!card || !stat) return;
-  card.className = 'pf-check ' + state;
-  stat.innerHTML = msg;
+  if (card && stat) {
+    card.className = 'pf-check ' + state;
+    stat.innerHTML = msg;
+  }
   pfUpdateScore();
 }
-
 function pfUpdateScore() {
   const vals  = Object.values(pfState);
   const done  = vals.filter(v => v !== 'scanning').length;
@@ -302,7 +322,6 @@ function pfUpdateScore() {
     else                     { btn.textContent = '⚠ Proceed with Warnings'; btn.style.background = 'linear-gradient(135deg,#ca8a04,#a16207)'; }
   }
 }
-
 function pfAnalyseFrame() {
   if (phase !== 'intake') return;
   const now = performance.now();
@@ -332,7 +351,6 @@ function pfAnalyseFrame() {
   } catch(e) {}
   pfRaf = requestAnimationFrame(pfAnalyseFrame);
 }
-
 function pfCheckBrowser() {
   const ua = navigator.userAgent;
   const isChrome  = /Chrome/.test(ua) && !/Edg/.test(ua) && !/OPR/.test(ua);
@@ -353,10 +371,12 @@ async function initCamera() {
     camStream = stream;
     camPreview.srcObject = stream;
     camPreview.play();
-    document.getElementById('cam-dot').classList.add('ok');
-    document.getElementById('cam-status-txt').textContent = 'Camera active';
-    document.getElementById('chk-cam').classList.add('ok');
-    document.getElementById('chk-cam').textContent = '✓ Cam';
+    const camDot = document.getElementById('cam-dot');
+    if (camDot) camDot.classList.add('ok');
+    const camStatus = document.getElementById('cam-status-txt');
+    if (camStatus) camStatus.textContent = 'Camera active';
+    const chkCam = document.getElementById('chk-cam');
+    if (chkCam) { chkCam.classList.add('ok'); chkCam.textContent = '✓ Cam'; }
     const t = stream.getVideoTracks()[0].getSettings();
     const w = t.width || 640, h = t.height || 480;
     pfSet('cam','pass', `✓ ${w}x${h}`);
@@ -365,7 +385,8 @@ async function initCamera() {
     pfCheckBrowser();
     loadPreviewDetector();
   } catch(e) {
-    document.getElementById('cam-status-txt').textContent = '✗ Camera error - allow access';
+    const camStatus = document.getElementById('cam-status-txt');
+    if (camStatus) camStatus.textContent = '✗ Camera error - allow access';
     pfSet('cam','fail','✗ Camera denied or not found');
     pfSet('face','fail','✗ No camera');
     pfSet('light','fail','✗ No camera');
@@ -388,7 +409,6 @@ async function loadPreviewDetector() {
     previewLoop();
   } catch(e) {}
 }
-
 function previewLoop() {
   if (phase !== 'intake') return;
   const now = performance.now();
@@ -412,10 +432,13 @@ function previewLoop() {
         drawPreviewMesh(res.faceLandmarks[0]);
         const lm = res.faceLandmarks[0];
         const hasIris = !!(lm[468] && lm[473]);
-        document.getElementById('chk-face').classList.add('ok');
-        document.getElementById('chk-face').textContent = '✓ Face';
-        document.getElementById('chk-iris').classList.toggle('ok', hasIris);
-        document.getElementById('chk-iris').textContent = hasIris ? '✓ Iris' : '👁 Iris';
+        const chkFace = document.getElementById('chk-face');
+        const chkIris = document.getElementById('chk-iris');
+        if (chkFace) { chkFace.classList.add('ok'); chkFace.textContent = '✓ Face'; }
+        if (chkIris) {
+          chkIris.classList.toggle('ok', hasIris);
+          chkIris.textContent = hasIris ? '✓ Iris' : '👁 Iris';
+        }
 
         if (hasIris) {
           const iodNorm = Math.hypot(lm[473].x - lm[468].x, lm[473].y - lm[468].y);
@@ -425,8 +448,10 @@ function previewLoop() {
           const rEAR = Math.hypot(lm[386].x-lm[374].x, lm[386].y-lm[374].y);
           const earPx = (lEAR + rEAR) / 2;
           const qPct  = (earPx / (iodNorm + 1e-6)) > 0.08 ? 95 : 75;
-          document.getElementById('q-fill').style.width = qPct + '%';
-          document.getElementById('q-pct').textContent = qPct + '%';
+          const qFill = document.getElementById('q-fill');
+          const qPctEl = document.getElementById('q-pct');
+          if (qFill) qFill.style.width = qPct + '%';
+          if (qPctEl) qPctEl.textContent = qPct + '%';
 
           if (iodNorm > 0.22)
             pfSet('face','warn', `⚠ Too close (IOD ${iodNorm.toFixed(3)}) - move back ~15 cm`);
@@ -439,21 +464,27 @@ function previewLoop() {
           else
             pfSet('face','warn', `⚠ Very far or face at edge - move much closer`);
         } else {
-          document.getElementById('q-fill').style.width = '40%';
-          document.getElementById('q-pct').textContent = '40%';
+          const qFill = document.getElementById('q-fill');
+          const qPctEl = document.getElementById('q-pct');
+          if (qFill) qFill.style.width = '40%';
+          if (qPctEl) qPctEl.textContent = '40%';
           pfSet('face','warn','⚠ Face detected but iris not visible - look at camera');
         }
       } else {
-        document.getElementById('chk-face').classList.remove('ok'); document.getElementById('chk-face').textContent = '👤 Face';
-        document.getElementById('chk-iris').classList.remove('ok'); document.getElementById('chk-iris').textContent = '👁 Iris';
-        document.getElementById('q-fill').style.width = '0%'; document.getElementById('q-pct').textContent = ' - ';
+        const chkFace = document.getElementById('chk-face');
+        const chkIris = document.getElementById('chk-iris');
+        if (chkFace) { chkFace.classList.remove('ok'); chkFace.textContent = '👤 Face'; }
+        if (chkIris) { chkIris.classList.remove('ok'); chkIris.textContent = '👁 Iris'; }
+        const qFill = document.getElementById('q-fill');
+        const qPctEl = document.getElementById('q-pct');
+        if (qFill) qFill.style.width = '0%';
+        if (qPctEl) qPctEl.textContent = ' - ';
         pfSet('face','fail','✗ No face detected - check camera position');
       }
     } catch(e) {}
   }
   previewRaf = requestAnimationFrame(previewLoop);
 }
-
 function drawPreviewMesh(lm) {
   const W = camCanvas.width, H = camCanvas.height;
   const fx = x => (1-x) * W, fy = y => y * H;
@@ -480,10 +511,9 @@ function checkStartBtn() {
   const pidOk   = document.getElementById('f-pid').value.trim().length > 0;
   const groupOk = document.querySelector('input[name="group"]:checked') !== null;
   const btn     = document.getElementById('start-btn');
-  btn.disabled  = !(pidOk && groupOk);
+  if (btn) btn.disabled = !(pidOk && groupOk);
   if (pidOk && groupOk) pfUpdateScore();
 }
-
 document.getElementById('f-pid').addEventListener('input', checkStartBtn);
 document.querySelectorAll('input[name="group"]').forEach(r => r.addEventListener('change', checkStartBtn));
 
@@ -492,7 +522,8 @@ document.getElementById('video-input').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   videoBlob = URL.createObjectURL(f);
   META.stimulus = f.name;
-  document.getElementById('video-hint').style.display = 'none';
+  const hint = document.getElementById('video-hint');
+  if (hint) hint.style.display = 'none';
   const existing = document.getElementById('video-drop').querySelector('.chosen');
   if (existing) existing.remove();
   document.getElementById('video-drop').insertAdjacentHTML('beforeend', `<div class="chosen">✓ ${f.name}</div>`);
@@ -519,9 +550,11 @@ async function beginSession() {
   try {
     if (previewFl) {
       faceLandmarker = previewFl;
-      document.getElementById('load-msg').textContent = 'Model ready - starting camera...';
+      const msgEl = document.getElementById('load-msg');
+      if (msgEl) msgEl.textContent = 'Model ready - starting camera...';
     } else {
-      document.getElementById('load-msg').textContent = 'Loading eye tracking model...';
+      const msgEl = document.getElementById('load-msg');
+      if (msgEl) msgEl.textContent = 'Loading eye tracking model...';
       const resolver = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
       faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
@@ -549,20 +582,20 @@ async function beginSession() {
     procRaf = requestAnimationFrame(processingLoop);
   } catch(err) {
     console.error(err);
-    document.getElementById('load-msg').textContent = '✗ ' + (err.message || 'Startup error');
+    const msgEl = document.getElementById('load-msg');
+    if (msgEl) msgEl.textContent = '✗ ' + (err.message || 'Startup error');
   }
 }
-
 function resizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
   [calibCanvas, gazeCanvas].forEach(canvas => {
+    if (!canvas) return;
     canvas.width  = Math.round(window.innerWidth  * dpr);
     canvas.height = Math.round(window.innerHeight * dpr);
     canvas.style.width  = window.innerWidth  + 'px';
     canvas.style.height = window.innerHeight + 'px';
   });
-  const ctx = calibCanvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (calibCtx) calibCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
 // ─── FEATURE EXTRACTION ───────────────────────────────────────────────────────
@@ -601,7 +634,6 @@ function extractFeatures(lm, mat) {
 
 // ─── RIDGE REGRESSION ────────────────────────────────────────────────────────
 function poly(f) { return [1, ...f.slice(0, 7)]; }
-
 function ridgeFit(X, y, alpha=RIDGE_ALPHA) {
   const n = X[0].length;
   const XtX = Array.from({length:n}, () => new Array(n).fill(0));
@@ -626,7 +658,6 @@ function ridgeFit(X, y, alpha=RIDGE_ALPHA) {
   }
   return aug.map(r => r[n]);
 }
-
 function trainModel(samples) {
   if (samples.length < MIN_SAMPLES) return null;
   const X = samples.map(s => poly(s.feat));
@@ -635,7 +666,6 @@ function trainModel(samples) {
     wy: ridgeFit(X, samples.map(s => s.sy))
   };
 }
-
 function predictGaze(feat, model) {
   if (!model) return null;
   const pf = poly(feat);
@@ -648,22 +678,13 @@ function predictGaze(feat, model) {
     y: Math.max(0, Math.min(window.innerHeight, cy))
   };
 }
-
-// ─── RAW IRIS HEURISTIC (for gaze‑contingent calibration before model exists) ─
 function estimateGazeFromIris(feat) {
-  // Very rough mapping: use iris‑to‑corner ratios as a linear proxy
-  // This is not accurate enough for precise gaze, but good enough to detect
-  // whether the child is looking near the target (±CALIB_GAZE_RADIUS).
   const [liX, riX, , , , , avgX] = feat;
-  // Map avgX (range approx -0.5..0.5) to screen width
   const rawX = (avgX + 0.5) * window.innerWidth;
-  // Use vertical component from iris Y (feat[5] is absolute iris Y in normalized coords)
-  const irisYabs = feat[5]; // normalized (0..1)
+  const irisYabs = feat[5];
   const rawY = irisYabs * window.innerHeight;
   return { x: rawX, y: rawY };
 }
-
-// ─── AFFINE CORRECTION ───────────────────────────────────────────────────────
 function computeAffineCorrection(pairs) {
   function linfit(ps, ts) {
     const n = ps.length;
@@ -683,42 +704,35 @@ function computeAffineCorrection(pairs) {
 //  CHILD-FRIENDLY CALIBRATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// 🧸 5-point grid built at runtime (centre + four corners)
 function buildCalibPoints() {
   const W = window.innerWidth, H = window.innerHeight;
   const mx = W/2, my = H/2;
   const px = Math.max(90, W * 0.13), py = Math.max(80, H * 0.14);
   return [
-    {x:mx,      y:my      }, // centre first — easiest for child
-    {x:px,      y:py      }, // top-left
-    {x:W-px,    y:py      }, // top-right
-    {x:W-px,    y:H-py    }, // bottom-right
-    {x:px,      y:H-py    }, // bottom-left
+    {x:mx,      y:my      },
+    {x:px,      y:py      },
+    {x:W-px,    y:py      },
+    {x:W-px,    y:H-py    },
+    {x:px,      y:H-py    },
   ];
 }
-
-// 🧸 Only 5 animals for 5 points
 const ANIMALS = ['cat','rabbit','bear','frog','duck'];
 const ANIMAL_PALETTES = [
-  {body:'#f4a261',ear:'#e76f51',eye:'#264653',bg:'#e9c46a'},   // cat
-  {body:'#e9c46a',ear:'#f4a261',eye:'#264653',bg:'#90e0ef'},   // rabbit
-  {body:'#a8dadc',ear:'#457b9d',eye:'#1d3557',bg:'#f1faee'},   // bear
-  {body:'#95d5b2',ear:'#52b788',eye:'#1b4332',bg:'#d8f3dc'},   // frog
-  {body:'#ffd166',ear:'#ef476f',eye:'#073b4c',bg:'#06d6a0'},   // duck
+  {body:'#f4a261',ear:'#e76f51',eye:'#264653',bg:'#e9c46a'},
+  {body:'#e9c46a',ear:'#f4a261',eye:'#264653',bg:'#90e0ef'},
+  {body:'#a8dadc',ear:'#457b9d',eye:'#1d3557',bg:'#f1faee'},
+  {body:'#95d5b2',ear:'#52b788',eye:'#1b4332',bg:'#d8f3dc'},
+  {body:'#ffd166',ear:'#ef476f',eye:'#073b4c',bg:'#06d6a0'},
 ];
-
 function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
   const r = Math.round(Math.max(44, Math.min(window.innerWidth, window.innerHeight) * 0.085)) * scale;
   const bob = Math.sin(t * 3.5) * r * 0.12;
   const wiggle = Math.sin(t * 7) * 0.06;
   const pal = ANIMAL_PALETTES[ANIMALS.indexOf(type)] || ANIMAL_PALETTES[0];
   const cy = y + bob;
-
   ctx.save();
   ctx.translate(x, cy);
   ctx.rotate(wiggle);
-
-  // Glow ring when gaze is near
   if (gazeNear) {
     ctx.beginPath();
     ctx.arc(0, 0, r * 1.55, 0, Math.PI * 2);
@@ -728,33 +742,24 @@ function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
     ctx.fillStyle = g;
     ctx.fill();
   }
-
-  // Shadow
   ctx.save();
   ctx.globalAlpha = 0.12;
   ctx.beginPath();
   ctx.ellipse(0, r + 5, r*0.85, r*0.2, 0, 0, Math.PI*2);
   ctx.fillStyle = '#000'; ctx.fill();
   ctx.restore();
-
-  // Body
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI*2);
   ctx.fillStyle = pal.body; ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 2; ctx.stroke();
-
-  // Animal-specific details (simplified for space – keep your existing code)
-  // ... (draw ears, whiskers, etc.) – insert your detailed drawing here.
-
-  // Eyes (universal)
+  // eyes
   [-0.28, 0.28].forEach(ex => {
     const eyeY = -r*0.12;
     ctx.beginPath(); ctx.arc(ex*r, eyeY, r*0.15, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
     ctx.beginPath(); ctx.arc(ex*r + r*0.04, eyeY, r*0.08, 0, Math.PI*2); ctx.fillStyle = pal.eye; ctx.fill();
     ctx.beginPath(); ctx.arc(ex*r + r*0.07, eyeY - r*0.05, r*0.03, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
   });
-
-  // Mouth
+  // mouth
   if (happy) {
     ctx.beginPath(); ctx.arc(0, r*0.28, r*0.22, 0.1*Math.PI, 0.9*Math.PI);
     ctx.strokeStyle = pal.eye; ctx.lineWidth = 2.5; ctx.stroke();
@@ -762,7 +767,6 @@ function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
     ctx.beginPath(); ctx.arc(0, r*0.4, r*0.16, Math.PI*1.1, Math.PI*1.9);
     ctx.strokeStyle = pal.eye; ctx.lineWidth = 2; ctx.stroke();
   }
-
   ctx.restore();
 }
 
@@ -777,7 +781,6 @@ function spawnCalibParticles(x, y) {
     });
   }
 }
-
 function updateCalibParticles(ctx) {
   for (let i = CALIB_PARTICLES.length - 1; i >= 0; i--) {
     const p = CALIB_PARTICLES[i];
@@ -799,24 +802,23 @@ function startCalib() {
   calibState    = 'gap';
   calibFacePresent = false;
 
-  // Show progress bar
   const prog = document.getElementById('calib-progress');
   if (prog) { prog.style.display = 'flex'; updateCalibProgress(); }
 
-  // 🧸 Show skip button after only 1 failed attempt (was 2)
   const skipBtn = document.getElementById('calib-skip-btn');
   if (skipBtn) skipBtn.style.display = calibFailCount >= 1 ? 'inline-block' : 'none';
 
   const dpr = window.devicePixelRatio || 1;
-  calibCanvas.width  = Math.round(window.innerWidth  * dpr);
-  calibCanvas.height = Math.round(window.innerHeight * dpr);
-  calibCanvas.style.width  = window.innerWidth  + 'px';
-  calibCanvas.style.height = window.innerHeight + 'px';
-  calibCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (calibCanvas) {
+    calibCanvas.width  = Math.round(window.innerWidth  * dpr);
+    calibCanvas.height = Math.round(window.innerHeight * dpr);
+    calibCanvas.style.width  = window.innerWidth  + 'px';
+    calibCanvas.style.height = window.innerHeight + 'px';
+    calibCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
 
   advanceCalibPoint();
 }
-
 function updateCalibProgress() {
   const prog = document.getElementById('calib-progress');
   if (!prog) return;
@@ -839,7 +841,7 @@ let _calibSamplingStart = 0;
 let _calibPointSamples = [];
 let _calibSkipTimer = null;
 let _calibSparkled = false;
-let _calibCurrentGaze = null; // updated by processingLoop
+let _calibCurrentGaze = null;
 
 function advanceCalibPoint() {
   if (calibIdx >= CALIB_TOTAL_PTS) {
@@ -856,15 +858,12 @@ function advanceCalibPoint() {
   _calibGapStart = performance.now();
   updateCalibProgress();
 
-  // Play animal jingle after gap
   setTimeout(() => {
     calibState = 'showing';
     _calibPointStart = performance.now();
     playAnimalJingle(calibIdx);
-    // 🧸 FIX: Force move to next point after 4s even if child hasn't looked
     _calibSkipTimer = setTimeout(() => {
       if (calibState !== 'done-point') {
-        // Directly advance to next point
         if (calibIdx < calibPoints.length) {
           calibIdx++;
           advanceCalibPoint();
@@ -883,81 +882,87 @@ function runCalibLoop() {
     _calibT += 0.016;
 
     const dpr = window.devicePixelRatio || 1;
-    calibCtx.clearRect(0, 0, calibCanvas.width / dpr, calibCanvas.height / dpr);
-    updateCalibParticles(calibCtx);
+    if (calibCtx) {
+      calibCtx.clearRect(0, 0, calibCanvas.width / dpr, calibCanvas.height / dpr);
+      updateCalibParticles(calibCtx);
 
-    // 🧸 Gap animation
-    if (calibState === 'gap') {
-      const gapElapsed = now - _calibGapStart;
-      const progress = Math.min(gapElapsed / CALIB_GAP_MS, 1);
-      const centerX = calibCanvas.width / dpr / 2;
-      const centerY = calibCanvas.height / dpr / 2;
-      calibCtx.beginPath();
-      calibCtx.arc(centerX, centerY, 30 + 20 * Math.sin(progress * Math.PI * 2), 0, 2 * Math.PI);
-      calibCtx.strokeStyle = '#00e5b0';
-      calibCtx.lineWidth = 4;
-      calibCtx.globalAlpha = 1 - progress;
-      calibCtx.stroke();
-      calibCtx.globalAlpha = 1;
-    }
-
-    if (calibState === 'showing' || calibState === 'holding' || calibState === 'sampling') {
-      const pt = calibPoints[calibIdx];
-      const animal = ANIMALS[calibIdx % ANIMALS.length];
-
-      // Determine if gaze is near target – use model if available, else raw heuristic
-      let gazeNear = false;
-      if (_calibCurrentGaze) {
-        const dist = Math.hypot(_calibCurrentGaze.x - pt.x, _calibCurrentGaze.y - pt.y);
-        gazeNear = dist < CALIB_GAZE_RADIUS;
-      }
-
-      const happy = gazeNear;
-      const elapsed = now - _calibPointStart;
-      const entrance = Math.min(elapsed / 350, 1);
-      const entScale = 1 - Math.pow(1 - entrance, 3) * Math.cos(entrance * Math.PI * 1.5);
-
-      drawAnimal(calibCtx, animal, pt.x, pt.y, _calibT, Math.min(entScale, 1.05), happy, gazeNear);
-
-      // Gaze‑contingent logic
-      if (calibState === 'showing' && gazeNear && entrance >= 0.9) {
-        calibState = 'holding';
-        _calibHoldStart = now;
-      }
-      if (calibState === 'holding') {
-        // 🧸 Blink forgiveness: only reset if gaze lost for >200ms
-        if (!gazeNear && (now - _calibHoldStart) > 200) {
-          calibState = 'showing';
-          _calibHoldStart = null;
-        } else if (now - _calibHoldStart >= CALIB_GAZE_HOLD) {
-          calibState = 'sampling';
-          _calibSampling = true;
-          _calibSamplingStart = now;
-          _calibPointSamples = [];
-        }
-      }
-      if (calibState === 'sampling') {
-        if (now - _calibSamplingStart >= CALIB_SAMPLE_MS) {
-          if (!_calibSparkled) {
-            spawnCalibParticles(pt.x, pt.y);
-            playSuccessChime();
-            _calibSparkled = true;
-          }
-          calibState = 'done-point';
-          clearTimeout(_calibSkipTimer);
-          setTimeout(() => commitCalibPoint(), 300);
-        }
-      }
-
-      // Hold progress ring
-      if (calibState === 'holding') {
-        const holdPct = (now - _calibHoldStart) / CALIB_GAZE_HOLD;
-        const r = Math.max(44, Math.min(window.innerWidth, window.innerHeight) * 0.085);
+      // Gap animation
+      if (calibState === 'gap') {
+        const gapElapsed = now - _calibGapStart;
+        const progress = Math.min(gapElapsed / CALIB_GAP_MS, 1);
+        const centerX = calibCanvas.width / dpr / 2;
+        const centerY = calibCanvas.height / dpr / 2;
         calibCtx.beginPath();
-        calibCtx.arc(pt.x, pt.y, r * 1.3, -Math.PI/2, -Math.PI/2 + holdPct * Math.PI * 2);
+        calibCtx.arc(centerX, centerY, 30 + 20 * Math.sin(progress * Math.PI * 2), 0, 2 * Math.PI);
         calibCtx.strokeStyle = '#00e5b0';
         calibCtx.lineWidth = 4;
+        calibCtx.globalAlpha = 1 - progress;
         calibCtx.stroke();
+        calibCtx.globalAlpha = 1;
+      }
+
+      if (calibState === 'showing' || calibState === 'holding' || calibState === 'sampling') {
+        const pt = calibPoints[calibIdx];
+        const animal = ANIMALS[calibIdx % ANIMALS.length];
+
+        // 👀 Dynamic gaze radius based on distance from centre
+        const screenCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        const distFromCenter = Math.hypot(pt.x - screenCenter.x, pt.y - screenCenter.y);
+        const maxDist = Math.hypot(window.innerWidth / 2, window.innerHeight / 2);
+        const actualGazeRadius = 250 + 100 * (distFromCenter / maxDist); // 250..350
+
+        let gazeNear = false;
+        if (_calibCurrentGaze) {
+          const dist = Math.hypot(_calibCurrentGaze.x - pt.x, _calibCurrentGaze.y - pt.y);
+          gazeNear = dist < actualGazeRadius;
+        }
+
+        const happy = gazeNear;
+        const elapsed = now - _calibPointStart;
+        const entrance = Math.min(elapsed / 350, 1);
+        const entScale = 1 - Math.pow(1 - entrance, 3) * Math.cos(entrance * Math.PI * 1.5);
+
+        drawAnimal(calibCtx, animal, pt.x, pt.y, _calibT, Math.min(entScale, 1.05), happy, gazeNear);
+
+        if (calibState === 'showing' && gazeNear && entrance >= 0.9) {
+          calibState = 'holding';
+          _calibHoldStart = now;
+        }
+        if (calibState === 'holding') {
+          if (!gazeNear && (now - _calibHoldStart) > 200) {
+            calibState = 'showing';
+            _calibHoldStart = null;
+          } else if (now - _calibHoldStart >= CALIB_GAZE_HOLD) {
+            calibState = 'sampling';
+            _calibSampling = true;
+            _calibSamplingStart = now;
+            _calibPointSamples = [];
+          }
+        }
+        if (calibState === 'sampling') {
+          if (now - _calibSamplingStart >= CALIB_SAMPLE_MS) {
+            if (!_calibSparkled) {
+              spawnCalibParticles(pt.x, pt.y);
+              playSuccessChime();
+              // 🎉 Confetti on successful completion of this point
+              startConfetti();
+              _calibSparkled = true;
+            }
+            calibState = 'done-point';
+            clearTimeout(_calibSkipTimer);
+            setTimeout(() => commitCalibPoint(), 300);
+          }
+        }
+
+        if (calibState === 'holding') {
+          const holdPct = (now - _calibHoldStart) / CALIB_GAZE_HOLD;
+          const r = Math.max(44, Math.min(window.innerWidth, window.innerHeight) * 0.085);
+          calibCtx.beginPath();
+          calibCtx.arc(pt.x, pt.y, r * 1.3, -Math.PI/2, -Math.PI/2 + holdPct * Math.PI * 2);
+          calibCtx.strokeStyle = '#00e5b0';
+          calibCtx.lineWidth = 4;
+          calibCtx.stroke();
+        }
       }
     }
 
@@ -966,7 +971,6 @@ function runCalibLoop() {
 }
 
 function commitCalibPoint() {
-  // Prevent double commit
   if (calibState === 'done-point' && calibIdx < calibPoints.length) {
     calibIdx++;
     advanceCalibPoint();
@@ -974,77 +978,76 @@ function commitCalibPoint() {
 }
 
 function finaliseCalib() {
-  // Store the RAF id before cancelling
   const rafId = calibRaf;
   calibRaf = null;
   cancelAnimationFrame(rafId);
-  calibCtx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
+  if (calibCtx) calibCtx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
 
   const prog = document.getElementById('calib-progress');
   if (prog) prog.style.display = 'none';
 
-  // If we have too few samples, increment fail count and maybe show skip option
   if (calibSamples.length < MIN_SAMPLES) {
     calibFailCount++;
-    // If we have at least one sample, we could still try to train a model
     if (calibSamples.length >= 10) {
       gazeModel = trainModel(calibSamples);
       if (gazeModel) {
-        // proceed to validation
         phase = 'validation';
         startValidation();
         return;
       }
     }
-    // Otherwise show retry screen
     const card = document.getElementById('calib-card');
-    card.querySelector('h2').textContent = '🐾 Let\'s try again!';
-    let tip = '';
-    if (calibSamples.length === 0) {
-      tip = 'Child may have looked away. Remind them to "Watch the animal!"';
-    } else if (calibSamples.length < 10) {
-      tip = `Only ${calibSamples.length} samples collected. Try again and ensure child looks at the animals.`;
-    } else {
-      tip = `Not enough samples (${calibSamples.length}). Could be lighting or distance.`;
+    if (card) {
+      const h2 = card.querySelector('h2');
+      if (h2) h2.textContent = '🐾 Let\'s try again!';
+      const p = card.querySelector('p');
+      if (p) {
+        let tip = '';
+        if (calibSamples.length === 0) {
+          tip = 'Child may have looked away. Remind them to "Watch the animal!"';
+        } else if (calibSamples.length < 10) {
+          tip = `Only ${calibSamples.length} samples collected. Try again and ensure child looks at the animals.`;
+        } else {
+          tip = `Not enough samples (${calibSamples.length}). Could be lighting or distance.`;
+        }
+        p.innerHTML = `${tip}<br><br>` +
+          `<strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, ` +
+          `<strong style="color:#fff">"Look at the animal!"</strong>`;
+      }
     }
-    card.querySelector('p').innerHTML =
-      `${tip}<br><br>` +
-      `<strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, ` +
-      `<strong style="color:#fff">"Look at the animal!"</strong>`;
-    document.getElementById('calib-start-btn').textContent = '🐾 Try Again!';
-    // 🧸 Show skip button after 1 failure (already handled in startCalib, but ensure here too)
-    if (calibFailCount >= 1) {
-      document.getElementById('calib-skip-btn').style.display = 'inline-block';
-    }
-    document.getElementById('calib-overlay').style.display = 'flex';
-    calibSamples = []; phase = 'calib-ready';
+    const startBtn = document.getElementById('calib-start-btn');
+    if (startBtn) startBtn.textContent = '🐾 Try Again!';
+    const skipBtn = document.getElementById('calib-skip-btn');
+    if (skipBtn && calibFailCount >= 1) skipBtn.style.display = 'inline-block';
+    const overlay = document.getElementById('calib-overlay');
+    if (overlay) overlay.style.display = 'flex';
+    calibSamples = [];
+    phase = 'calib-ready';
     return;
   }
 
-  // Sufficient samples – train model
   gazeModel = trainModel(calibSamples);
   if (!gazeModel) {
-    // fallback – still go to validation but with skip mode active?
     calibSkipActive = true;
   }
   phase = 'validation';
   startValidation();
 }
 
-// Skip calibration button – proceeds to validation without gaze model
 document.getElementById('calib-skip-btn')?.addEventListener('click', () => {
   calibSkipActive = true;
   calibState = 'idle';
   cancelAnimationFrame(calibRaf);
   calibRaf = null;
-  calibCtx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
+  if (calibCtx) calibCtx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
   phase = 'validation';
   startValidation();
 });
-
-document.getElementById('calib-start-btn').addEventListener('click', () => {
-  document.getElementById('calib-overlay').style.display = 'none';
-  calibSamples = []; phase = 'calib-run';
+document.getElementById('calib-start-btn')?.addEventListener('click', () => {
+  const overlay = document.getElementById('calib-overlay');
+  if (overlay) overlay.style.display = 'none';
+  calibSamples = [];
+  phase = 'calib-run';
   startCalib();
 });
 
@@ -1061,7 +1064,6 @@ function spawnSparkles(ctx, x, y) {
     });
   }
 }
-
 function updateSparkles(ctx) {
   for (let i = VAL_PARTICLES.length - 1; i >= 0; i--) {
     const p = VAL_PARTICLES[i];
@@ -1073,7 +1075,6 @@ function updateSparkles(ctx) {
     ctx.restore();
   }
 }
-
 function drawStar(ctx, x, y, radius, twinklePhase, entranceProgress) {
   const r = radius * entranceProgress;
   const innerR = r * 0.4, points = 5;
@@ -1100,12 +1101,10 @@ function drawStar(ctx, x, y, radius, twinklePhase, entranceProgress) {
     ctx.fillStyle = `rgba(255,255,255,${0.6*(entranceProgress-0.8)*5})`; ctx.fill();
   }
 }
-
 function startValidation() {
   valPoints = [];
   const W = window.innerWidth, H = window.innerHeight;
   const safeVX = Math.max(80, W*.16), safeVY = Math.max(80, H*.16);
-  // 🧸 Reduced validation points: centre, top-left, bottom-right
   valPoints = [
     {x:W/2,      y:H/2},
     {x:safeVX,   y:safeVY},
@@ -1114,26 +1113,30 @@ function startValidation() {
   valIdx = 0; valSamples = []; VAL_PARTICLES.length = 0;
   prevGaze = null; prevGazeTime = null;
 
-  document.getElementById('val-overlay').style.display = 'block';
-  document.getElementById('val-instruction').style.opacity = '1';
-  document.getElementById('val-badge').style.display = 'none';
-  document.getElementById('val-badge-tot').textContent = valPoints.length;
+  const overlay = document.getElementById('val-overlay');
+  if (overlay) overlay.style.display = 'block';
+  const instr = document.getElementById('val-instruction');
+  if (instr) instr.style.opacity = '1';
+  const badge = document.getElementById('val-badge');
+  if (badge) badge.style.display = 'none';
+  const tot = document.getElementById('val-badge-tot');
+  if (tot) tot.textContent = valPoints.length;
 
   playChime(528, 0.1, 0.6);
   setTimeout(() => {
-    document.getElementById('val-instruction').style.opacity = '0';
+    if (instr) instr.style.opacity = '0';
     setTimeout(() => {
-      document.getElementById('val-instruction').style.display = 'none';
-      document.getElementById('val-badge').style.display = 'block';
+      if (instr) instr.style.display = 'none';
+      if (badge) badge.style.display = 'block';
       runStarDot();
     }, 400);
   }, VAL_INTRO_MS);
 }
-
 function runStarDot() {
   if (valIdx >= valPoints.length) { finishValidation(); return; }
   const pt = valPoints[valIdx];
   const valCanvas = document.getElementById('val-canvas');
+  if (!valCanvas) return;
   const dpr = window.devicePixelRatio || 1;
   valCanvas.width  = Math.round(window.innerWidth  * dpr);
   valCanvas.height = Math.round(window.innerHeight * dpr);
@@ -1141,7 +1144,8 @@ function runStarDot() {
   valCanvas.style.height = window.innerHeight + 'px';
   const vCtx = valCanvas.getContext('2d');
   vCtx.scale(dpr, dpr);
-  document.getElementById('val-badge-num').textContent = valIdx + 1;
+  const numEl = document.getElementById('val-badge-num');
+  if (numEl) numEl.textContent = valIdx + 1;
 
   const notes = [523,659,784];
   playChime(notes[valIdx % notes.length], 0.12, 0.5);
@@ -1215,10 +1219,10 @@ function runStarDot() {
   }
   valRaf = requestAnimationFrame(frame);
 }
-
 function finishValidation() {
   cancelAnimationFrame(valRaf);
-  document.getElementById('val-overlay').style.display = 'none';
+  const overlay = document.getElementById('val-overlay');
+  if (overlay) overlay.style.display = 'none';
 
   if (valSamples.length >= 3) {
     affineBias = computeAffineCorrection(valSamples);
@@ -1227,20 +1231,28 @@ function finishValidation() {
       affineBias = {dx:0, dy:0, sx:1, sy:1};
       calibSamples = []; gazeModel = null;
       const card = document.getElementById('calib-card');
-      card.querySelector('h2').textContent = '🐾 Let\'s try again!';
-      card.querySelector('p').innerHTML =
-        'Validation showed poor accuracy. Please recalibrate.<br><br>' +
-        '<strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, say ' +
-        '<strong style="color:#fff">"Look at the animal!"</strong>';
-      document.getElementById('calib-start-btn').textContent = '🐾 Try Again!';
-      document.getElementById('calib-overlay').style.display = 'flex';
-      phase = 'calib-ready'; return;
+      if (card) {
+        const h2 = card.querySelector('h2');
+        if (h2) h2.textContent = '🐾 Let\'s try again!';
+        const p = card.querySelector('p');
+        if (p) p.innerHTML = 'Validation showed poor accuracy. Please recalibrate.<br><br>' +
+          '<strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, say ' +
+          '<strong style="color:#fff">"Look at the animal!"</strong>';
+      }
+      const startBtn = document.getElementById('calib-start-btn');
+      if (startBtn) startBtn.textContent = '🐾 Try Again!';
+      const overlayCalib = document.getElementById('calib-overlay');
+      if (overlayCalib) overlayCalib.style.display = 'flex';
+      phase = 'calib-ready';
+      return;
     }
   }
   phase = 'stimulus';
   showScreen('stimulus');
-  document.getElementById('h-child').textContent = META.pid;
-  document.getElementById('h-group').textContent = META.group;
+  const hChild = document.getElementById('h-child');
+  if (hChild) hChild.textContent = META.pid;
+  const hGroup = document.getElementById('h-group');
+  if (hGroup) hGroup.textContent = META.group;
   startRecording();
 }
 
@@ -1261,46 +1273,31 @@ function classifyGaze(gaze, currentTime) {
 
 // ─── WELFARE MONITOR UPDATE ───────────────────────────────────────────────────
 function updateWelfareHUD(hasFace, ear, headPos, currentTime) {
-  // Blink detection (EAR < 0.06)
   if (hasFace && ear < 0.06) {
     if (lastBlinkTime > 0) {
-      const blinkDuration = currentTime - lastBlinkTime; // ms since last blink start
-      if (blinkDuration < 200) { // normal blink
+      const blinkDuration = currentTime - lastBlinkTime;
+      if (blinkDuration < 200) {
         blinkTimes.push(currentTime);
-      } else if (blinkDuration > 200 && blinkDuration < 800) { // slow blink (drowsiness)
+      } else if (blinkDuration > 200 && blinkDuration < 800) {
         slowBlinkCount++;
         blinkTimes.push(currentTime);
       }
     }
     lastBlinkTime = currentTime;
   }
-
-  // Prune blink history older than 30s
   const cutoff = currentTime - 30000;
   blinkTimes = blinkTimes.filter(t => t > cutoff);
-  slowBlinkCount = 0; // will recount only last 30s? simpler: just keep count over session
-  // For simplicity, we'll just show rate over last 30s by counting blinkTimes
-  const blinkRate30s = blinkTimes.length;
-
-  // Head movement detection (using IOD or head position change)
   if (headPos && lastHeadPos) {
     const move = Math.hypot(headPos.x - lastHeadPos.x, headPos.y - lastHeadPos.y);
-    if (move > 0.03) { // significant normalized movement
-      headMovementEvents++;
-    }
+    if (move > 0.03) headMovementEvents++;
   }
   lastHeadPos = headPos;
-
-  // Face‑off percentage
   if (!hasFace) faceOffFrames++;
-
-  // Update HUD every 30 frames (approx 3s)
   if (totalF % 30 === 0) {
     const mins = (currentTime - sessionStart) / 60000;
     const blinkPerMin = mins > 0 ? Math.round(blinkTimes.length / mins) : 0;
     const drowsyFlag = slowBlinkCount > DROWSY_THRESHOLD ? '⚠️' : '✓';
     const faceOffPct = totalF > 0 ? Math.round((faceOffFrames / totalF) * 100) : 0;
-
     if (welfareBlink) welfareBlink.textContent = `${blinkPerMin}/min`;
     if (welfareDrowsy) welfareDrowsy.textContent = drowsyFlag;
     if (welfareHead) welfareHead.textContent = headMovementEvents;
@@ -1315,8 +1312,8 @@ function startRecording() {
 
   timerInt = setInterval(() => {
     const s = Math.floor((Date.now() - sessionStart) / 1000);
-    document.getElementById('h-timer').textContent =
-      `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+    const timerEl = document.getElementById('h-timer');
+    if (timerEl) timerEl.textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   }, 500);
 
   if (videoBlob) {
@@ -1324,37 +1321,39 @@ function startRecording() {
     stimVideo.play().catch(() => showNoVideo());
     stimVideo.onerror = showNoVideo;
     stimVideo.onended = () => endSession();
-    document.getElementById('sound-btn').style.display = 'block';
+    const soundBtn = document.getElementById('sound-btn');
+    if (soundBtn) soundBtn.style.display = 'block';
   } else {
     showNoVideo();
   }
 }
-
 function showNoVideo() {
-  document.getElementById('no-video').style.display = 'flex';
-  document.getElementById('sound-btn').style.display = 'none';
+  const noVideo = document.getElementById('no-video');
+  if (noVideo) noVideo.style.display = 'flex';
+  const soundBtn = document.getElementById('sound-btn');
+  if (soundBtn) soundBtn.style.display = 'none';
 }
-
-document.getElementById('stim-file-input').addEventListener('change', e => {
+document.getElementById('stim-file-input')?.addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   META.stimulus = f.name;
   stimVideo.src = URL.createObjectURL(f); stimVideo.muted = true;
-  document.getElementById('no-video').style.display = 'none';
+  const noVideo = document.getElementById('no-video');
+  if (noVideo) noVideo.style.display = 'none';
   stimVideo.play().catch(() => {});
   stimVideo.onended = () => endSession();
-  document.getElementById('sound-btn').style.display = 'block';
+  const soundBtn = document.getElementById('sound-btn');
+  if (soundBtn) soundBtn.style.display = 'block';
 });
-
-document.getElementById('sound-btn').addEventListener('click', () => {
+document.getElementById('sound-btn')?.addEventListener('click', () => {
   stimVideo.muted = false; stimVideo.play().catch(() => {});
-  document.getElementById('sound-btn').style.display = 'none';
+  const soundBtn = document.getElementById('sound-btn');
+  if (soundBtn) soundBtn.style.display = 'none';
 });
 
 // ─── MAIN PROCESSING LOOP ─────────────────────────────────────────────────────
 function processingLoop() {
   if (phase === 'done') return;
 
-  // During calibration: feed gaze prediction for gaze‑contingent logic
   if (phase === 'calib-run') {
     if (webcam.readyState >= 2 && faceLandmarker && webcam.currentTime !== _lastVT) {
       _lastVT = webcam.currentTime;
@@ -1368,7 +1367,6 @@ function processingLoop() {
           const feat = extractFeatures(lm, mat);
           const isBlink = feat[7] < 0.06;
 
-          // Update gaze estimate – use model if available, else raw heuristic
           if (!isBlink) {
             if (gazeModel) {
               _calibCurrentGaze = predictGaze(feat, gazeModel);
@@ -1379,7 +1377,6 @@ function processingLoop() {
             _calibCurrentGaze = null;
           }
 
-          // Collect samples during sampling phase
           if (calibState === 'sampling' && !isBlink) {
             const pt = calibPoints[calibIdx];
             if (pt) calibSamples.push({feat, sx: pt.x, sy: pt.y});
@@ -1404,19 +1401,11 @@ function processingLoop() {
     const mat     = (res.facialTransformationMatrixes?.length > 0) ? res.facialTransformationMatrixes[0] : null;
     calibFacePresent = hasFace;
 
-    // Debug panel (optional)
-    const dbgPanel = document.getElementById('debug-panel');
-    if (hasFace && dbgPanel?.style.display !== 'none') {
-      const lm = res.faceLandmarks[0];
-      const f  = extractFeatures(lm, mat);
-      // ... (debug updates as before)
-    }
-
     if (phase === 'stimulus') {
-      document.getElementById('h-face').textContent  = hasFace ? 'Yes' : 'No';
-      document.getElementById('h-face').className    = hasFace ? 'ok' : 'bad';
-      document.getElementById('st-face').textContent = hasFace ? 'Yes' : 'No';
-      document.getElementById('st-face').className   = 'sv ' + (hasFace ? 'ok' : 'bad');
+      const hFace = document.getElementById('h-face');
+      if (hFace) { hFace.textContent = hasFace ? 'Yes' : 'No'; hFace.className = hasFace ? 'ok' : 'bad'; }
+      const stFace = document.getElementById('st-face');
+      if (stFace) { stFace.textContent = hasFace ? 'Yes' : 'No'; stFace.className = 'sv ' + (hasFace ? 'ok' : 'bad'); }
     }
 
     if (hasFace) {
@@ -1426,13 +1415,9 @@ function processingLoop() {
       const isBlink  = ear < 0.06;
       const nowMs    = Date.now() - sessionStart;
 
-      // Head position for movement detection (use normalized eye corners average)
       const headPos = { x: (lm[33].x + lm[263].x)/2, y: (lm[33].y + lm[263].y)/2 };
-
-      // Update welfare monitor
       updateWelfareHUD(hasFace, ear, headPos, nowMs);
 
-      // ── Iris pixel coords ──────────────────────────────────────────────────
       let leftPupilX  = null, leftPupilY  = null;
       let rightPupilX = null, rightPupilY = null;
       try {
@@ -1455,9 +1440,6 @@ function processingLoop() {
         if (!isBlink) {
           if (gazeModel && !calibSkipActive) {
             gaze = predictGaze(feat, gazeModel);
-          } else {
-            // In skip mode or no model, we still record but gaze remains null
-            // We can optionally use raw iris heuristic for debugging but not for CSV
           }
         }
 
@@ -1473,18 +1455,20 @@ function processingLoop() {
         if (gaze) {
           trackedF++;
           gazeCtx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
-          document.getElementById('st-gaze').textContent = 'Tracking';
-          document.getElementById('st-gaze').className   = 'sv ok';
+          const stGaze = document.getElementById('st-gaze');
+          if (stGaze) { stGaze.textContent = 'Tracking'; stGaze.className = 'sv ok'; }
         } else {
           if (isBlink) { prevGaze = null; prevGazeTime = null; }
           gazeCtx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
-          document.getElementById('st-gaze').textContent = isBlink ? 'Blink' : 'Lost';
-          document.getElementById('st-gaze').className   = 'sv bad';
+          const stGaze = document.getElementById('st-gaze');
+          if (stGaze) { stGaze.textContent = isBlink ? 'Blink' : 'Lost'; stGaze.className = 'sv bad'; }
         }
 
         recordedFrames.push(frameData);
-        document.getElementById('st-frames').textContent = recordedFrames.length;
-        document.getElementById('st-track').textContent  = Math.round(trackedF/totalF*100) + '%';
+        const stFrames = document.getElementById('st-frames');
+        if (stFrames) stFrames.textContent = recordedFrames.length;
+        const stTrack = document.getElementById('st-track');
+        if (stTrack) stTrack.textContent = Math.round(trackedF/totalF*100) + '%';
 
         if (recordedFrames.length > 10) {
           const ys = recordedFrames.filter(f => f.tracked).map(f => f.gazeY);
@@ -1492,15 +1476,14 @@ function processingLoop() {
             const my = ys.reduce((a,b) => a+b,0) / ys.length;
             const sy = Math.sqrt(ys.reduce((a,b) => a+(b-my)**2, 0) / ys.length);
             const el = document.getElementById('st-ystd');
-            el.textContent = sy.toFixed(0) + 'px';
-            el.className   = 'sv ' + (sy > 30 ? 'ok' : 'bad');
+            if (el) { el.textContent = sy.toFixed(0) + 'px'; el.className = 'sv ' + (sy > 30 ? 'ok' : 'bad'); }
           }
         }
       }
     } else if (phase === 'stimulus') {
       totalF++;
       const nowMs = Date.now() - sessionStart;
-      updateWelfareHUD(false, 1.0, null, nowMs); // no face
+      updateWelfareHUD(false, 1.0, null, nowMs);
       recordedFrames.push({
         t: nowMs, tracked: 0,
         gazeX: NaN, gazeY: NaN,
@@ -1508,7 +1491,8 @@ function processingLoop() {
         rightPupilX: null, rightPupilY: null,
         category: 'Blink', feat: null
       });
-      if (totalF > 0) document.getElementById('st-track').textContent = Math.round(trackedF/totalF*100) + '%';
+      const stTrack = document.getElementById('st-track');
+      if (stTrack && totalF > 0) stTrack.textContent = Math.round(trackedF/totalF*100) + '%';
     }
   }
   procRaf = requestAnimationFrame(processingLoop);
@@ -1542,13 +1526,11 @@ const CSV_HDR = [
 ].join(',');
 
 function buildCSV() {
-  // Calculate welfare stats for metadata
-  const sessionDuration = (Date.now() - sessionStart) / 1000 / 60; // minutes
+  const sessionDuration = (Date.now() - sessionStart) / 1000 / 60;
   const totalBlinkCount = blinkTimes.length;
   const blinkRatePerMin = sessionDuration > 0 ? Math.round(totalBlinkCount / sessionDuration) : 0;
   const drowsyFlag = slowBlinkCount > DROWSY_THRESHOLD ? '⚠️' : '✓';
   const faceOffPct = totalF > 0 ? Math.round((faceOffFrames / totalF) * 100) : 0;
-
   const welfareMeta = `blinks/min=${blinkRatePerMin} drowsy=${drowsyFlag} head_moves=${headMovementEvents} face_off=${faceOffPct}% skip_mode=${calibSkipActive}`;
   const biasMeta = `# GazeTrack v14 | bias_dx=${affineBias.dx.toFixed(2)} bias_dy=${affineBias.dy.toFixed(2)} bias_sx=${affineBias.sx.toFixed(4)} bias_sy=${affineBias.sy.toFixed(4)} val_samples=${valSamples.length} calib_samples=${calibSamples.length} ${welfareMeta}`;
   const lines = [biasMeta, CSV_HDR];
@@ -1566,43 +1548,43 @@ function buildCSV() {
     const tod     = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
 
     const row = [
-      i,                                    // Unnamed: 0
-      f.t.toFixed(3),                       // RecordingTime [ms]
-      tod,                                  // Time of Day
-      'Trial001',                           // Trial
-      META.stimulus || '-',                 // Stimulus
-      0,                                    // Export Start
-      totalDuration.toFixed(3),            // Export End
-      META.pid,                             // Participant
-      color,                                // Color
-      trackingRatio.toFixed(3),            // Tracking Ratio [%]
-      f.category,                           // Category Group
-      f.category,                           // Category Right
-      f.category,                           // Category Left
-      i+1,                                  // Index Right
-      i+1,                                  // Index Left
-      '-','-','-',                          // Pupil Size R (unavailable)
-      '-','-','-',                          // Pupil Size L (unavailable)
-      fmtNum(f.gazeX), fmtNum(f.gazeY),    // Point of Regard Right
-      fmtNum(f.gazeX), fmtNum(f.gazeY),    // Point of Regard Left (binocular avg = same)
-      '-','-',                              // AOI names
-      f.feat ? f.feat[0].toFixed(4) : '-', // Gaze Vector Right X (iris pos)
-      f.feat ? f.feat[1].toFixed(4) : '-', // Gaze Vector Right Y
-      f.feat ? f.feat[2].toFixed(4) : '-', // Gaze Vector Right Z (pitch)
-      f.feat ? f.feat[0].toFixed(4) : '-', // Gaze Vector Left X
-      f.feat ? f.feat[1].toFixed(4) : '-', // Gaze Vector Left Y
-      f.feat ? f.feat[2].toFixed(4) : '-', // Gaze Vector Left Z
-      '-','-','-',                          // Eye Pos R mm (unavailable)
-      '-','-','-',                          // Eye Pos L mm (unavailable)
-      fmtNum(f.rightPupilX), fmtNum(f.rightPupilY), // Pupil Pos R (camera px)
-      fmtNum(f.leftPupilX),  fmtNum(f.leftPupilY),  // Pupil Pos L (camera px)
-      0,                                    // Port Status
-      '-','-','-',                          // Annotations
-      '-','-','-','-',                      // Mouse/scroll
-      META.stimulus || '-',                 // Content
-      '-','-','-',                          // AOI Group/Scope/Order R
-      '-','-','-',                          // AOI Group/Scope/Order L
-      META.group                            // groupe d'enfants
+      i,
+      f.t.toFixed(3),
+      tod,
+      'Trial001',
+      META.stimulus || '-',
+      0,
+      totalDuration.toFixed(3),
+      META.pid,
+      color,
+      trackingRatio.toFixed(3),
+      f.category,
+      f.category,
+      f.category,
+      i+1,
+      i+1,
+      '-','-','-',
+      '-','-','-',
+      fmtNum(f.gazeX), fmtNum(f.gazeY),
+      fmtNum(f.gazeX), fmtNum(f.gazeY),
+      '-','-',
+      f.feat ? f.feat[0].toFixed(4) : '-',
+      f.feat ? f.feat[1].toFixed(4) : '-',
+      f.feat ? f.feat[2].toFixed(4) : '-',
+      f.feat ? f.feat[0].toFixed(4) : '-',
+      f.feat ? f.feat[1].toFixed(4) : '-',
+      f.feat ? f.feat[2].toFixed(4) : '-',
+      '-','-','-',
+      '-','-','-',
+      fmtNum(f.rightPupilX), fmtNum(f.rightPupilY),
+      fmtNum(f.leftPupilX),  fmtNum(f.leftPupilY),
+      0,
+      '-','-','-',
+      '-','-','-','-',
+      META.stimulus || '-',
+      '-','-','-',
+      '-','-','-',
+      META.group
     ];
 
     lines.push(row.map(v => v === undefined ? '-' : v).join(','));
@@ -1646,44 +1628,48 @@ function endSession() {
   const fixCount = recordedFrames.filter(f => f.category === 'Fixation').length;
   const sacCount = recordedFrames.filter(f => f.category === 'Saccade').length;
 
-  // Welfare stats for done screen
   const sessionMins = dur / 60;
   const blinkRate = sessionMins > 0 ? Math.round(blinkTimes.length / sessionMins) : 0;
   const drowsyFlag = slowBlinkCount > DROWSY_THRESHOLD ? '⚠️ Drowsy' : '✓ Normal';
   const faceOffPct = totalF > 0 ? Math.round((faceOffFrames / totalF) * 100) : 0;
 
-  document.getElementById('done-stats').innerHTML = `
-    <div class="done-stat"><div class="n">${recordedFrames.length}</div><div class="l">FRAMES</div></div>
-    <div class="done-stat"><div class="n">${pct}%</div><div class="l">TRACKED</div></div>
-    <div class="done-stat"><div class="n">${dur}s</div><div class="l">DURATION</div></div>
-    <div class="done-stat"><div class="n" style="color:${ystd>30?'var(--accent)':'var(--warn)'}">${ystd.toFixed(0)}px</div><div class="l">Y STD</div></div>
-    <div class="done-stat"><div class="n" style="color:var(--accent)">${fixCount}</div><div class="l">FIXATIONS</div></div>
-    <div class="done-stat"><div class="n" style="color:var(--gold)">${sacCount}</div><div class="l">SACCADES</div></div>
-    <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
-    <hr style="grid-column:1/-1;border:0;border-top:1px solid var(--border);margin:8px 0">
-    <div class="done-stat"><div class="n">${blinkRate}/min</div><div class="l">BLINKS</div></div>
-    <div class="done-stat"><div class="n">${drowsyFlag}</div><div class="l">DROWSINESS</div></div>
-    <div class="done-stat"><div class="n">${headMovementEvents}</div><div class="l">HEAD MOVES</div></div>
-    <div class="done-stat"><div class="n">${faceOffPct}%</div><div class="l">FACE OFF</div></div>
-  `;
+  const statsEl = document.getElementById('done-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="done-stat"><div class="n">${recordedFrames.length}</div><div class="l">FRAMES</div></div>
+      <div class="done-stat"><div class="n">${pct}%</div><div class="l">TRACKED</div></div>
+      <div class="done-stat"><div class="n">${dur}s</div><div class="l">DURATION</div></div>
+      <div class="done-stat"><div class="n" style="color:${ystd>30?'var(--accent)':'var(--warn)'}">${ystd.toFixed(0)}px</div><div class="l">Y STD</div></div>
+      <div class="done-stat"><div class="n" style="color:var(--accent)">${fixCount}</div><div class="l">FIXATIONS</div></div>
+      <div class="done-stat"><div class="n" style="color:var(--gold)">${sacCount}</div><div class="l">SACCADES</div></div>
+      <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
+      <hr style="grid-column:1/-1;border:0;border-top:1px solid var(--border);margin:8px 0">
+      <div class="done-stat"><div class="n">${blinkRate}/min</div><div class="l">BLINKS</div></div>
+      <div class="done-stat"><div class="n">${drowsyFlag}</div><div class="l">DROWSINESS</div></div>
+      <div class="done-stat"><div class="n">${headMovementEvents}</div><div class="l">HEAD MOVES</div></div>
+      <div class="done-stat"><div class="n">${faceOffPct}%</div><div class="l">FACE OFF</div></div>
+    `;
+  }
 
   showScreen('done');
   const ts2 = new Date().toISOString().replace(/[:.]/g, '-');
   setTimeout(() => uploadToMongo(csvData, `gaze_${META.pid}_${META.group}_${ts2}.csv`), 600);
 }
 
-document.getElementById('end-btn').addEventListener('click', endSession);
-document.getElementById('btn-dl').addEventListener('click', () => downloadCSV());
-document.getElementById('btn-restart').addEventListener('click', () => location.reload());
+document.getElementById('end-btn')?.addEventListener('click', endSession);
+document.getElementById('btn-dl')?.addEventListener('click', () => downloadCSV());
+document.getElementById('btn-restart')?.addEventListener('click', () => location.reload());
 
 // ─── MONGODB UPLOAD ───────────────────────────────────────────────────────────
 function driveSetStatus(icon, msg, color) {
-  const el = document.getElementById('drive-status'); if (!el) return;
-  document.getElementById('drive-icon').textContent = icon;
-  document.getElementById('drive-msg').textContent  = msg;
+  const el = document.getElementById('drive-status');
+  if (!el) return;
+  const iconEl = document.getElementById('drive-icon');
+  if (iconEl) iconEl.textContent = icon;
+  const msgEl = document.getElementById('drive-msg');
+  if (msgEl) msgEl.textContent = msg;
   el.style.borderColor = color || 'var(--border)';
 }
-
 async function uploadToMongo(csvText, filename) {
   driveSetStatus('☁️','Saving to database...','var(--border)');
   try {
@@ -1699,9 +1685,11 @@ async function uploadToMongo(csvText, filename) {
     if (!resp.ok) throw new Error('Server ' + resp.status);
     driveSetStatus('✅','Saved to database!','rgba(0,229,176,0.4)');
     const btn = document.getElementById('btn-dl');
-    btn.textContent = '✅ Saved - click to download locally';
-    btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
-    btn.onclick = () => downloadCSV();
+    if (btn) {
+      btn.textContent = '✅ Saved - click to download locally';
+      btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
+      btn.onclick = () => downloadCSV();
+    }
   } catch(err) {
     driveSetStatus('❌','Database save failed - downloading locally','rgba(255,92,58,0.4)');
     downloadCSV();
@@ -1715,12 +1703,10 @@ window.addEventListener('keydown', e => {
     if (p) p.style.display = p.style.display === 'none' ? 'block' : 'none';
   }
 });
-
 window.addEventListener('beforeunload', () => {
   if (sessionStream) sessionStream.getTracks().forEach(t => t.stop());
   if (camStream)     camStream.getTracks().forEach(t => t.stop());
 });
-
 window.addEventListener('resize', () => {
   if (phase === 'calib-run') {
     calibPoints = buildCalibPoints();
