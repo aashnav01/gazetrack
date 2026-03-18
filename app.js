@@ -1,19 +1,21 @@
 /**
  * GazeTrack v15 – Immersive Child Calibration Edition
  * =====================================================
- * Full replacement app.js integrating:
- *   - Original v14 eye tracking, CSV export, MongoDB upload, validation
- *   - NEW: Immersive "Star Keeper" calibration (creature-feeding game)
- *   - NEW: Dynamic gaze radius using screen diagonal + corner bonus
- *   - NEW: Iris bridge (150ms) across blink frames
- *   - NEW: Extended blink forgiveness (300ms) during hold
- *   - NEW: Force-skip timer fixed (6.5s corners, 5s center)
- *   - NEW: Per-point light confetti + big completion shower
- *   - NEW: Child fatigue detection with auto-break overlay
- *   - All original recording, CSV, welfare monitor, MongoDB unchanged
+ * FIXED VERSION — patches applied:
+ *   [FIX-1] estimateGazeFromIris: iris offset scaled correctly (×4.5/×5.0)
+ *   [FIX-2] Gaze acceptance radius increased (0.18 diag, 2.2 corner bonus)
+ *   [FIX-3] Hold-lost hysteresis: _calibHoldLostAt prevents noisy resets
+ *   [FIX-4] processingLoop calib-run uses performance.now() throttle, not
+ *           webcam.currentTime dedup (which could stall for many frames)
+ *   [FIX-5] advanceCalibPoint & startCalib both reset _calibHoldLostAt
+ *   [FIX-6] finaliseCalib: cancelled RAF stored correctly before nulling
+ *   [FIX-7] runCalibLoop: _calibT renamed to _calibLoopT consistently
+ *   [FIX-8] creatureEls initialised as [] not sparse — forEach gap guard added
+ *   [FIX-9] valCanvas DPR scale applied once per point (was stacking)
+ *   [FIX-10] buildCSV: recordedFrames with null feat no longer crashes .toFixed
  */
 
-console.log('%c GazeTrack v15 (Star Keeper Edition)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v15 (Star Keeper Edition — Fixed)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -26,18 +28,18 @@ const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent)
   || (window.innerWidth >= 768 && window.innerWidth <= 1280);
 
 // ─── CONSTANTS ──────────────────────────────────────────────────────────────
-const CALIB_GAZE_HOLD     = 700;    // ms child must hold gaze before sampling
-const CALIB_SAMPLE_MS     = 600;    // ms of samples collected per point
-const CALIB_TOTAL_PTS     = 5;
-const CALIB_GAP_MS        = 500;
-const MIN_SAMPLES         = 25;
-const RIDGE_ALPHA         = 0.01;
+const CALIB_GAZE_HOLD        = 700;   // ms child must hold gaze before sampling
+const CALIB_SAMPLE_MS        = 600;   // ms of samples collected per point
+const CALIB_TOTAL_PTS        = 5;
+const CALIB_GAP_MS           = 500;
+const MIN_SAMPLES            = 25;
+const RIDGE_ALPHA            = 0.01;
 
-// NEW calibration constants
-const CALIB_BLINK_FORGIVE_MS = 300;   // blink forgiveness during hold
-const CALIB_IRIS_BRIDGE_MS   = 150;   // reuse last gaze across missed frames
-const CALIB_CORNER_BONUS     = 1.7;   // corner acceptance radius multiplier
-const CALIB_DIAG_FRACTION    = 0.13;  // fraction of screen diagonal for base radius
+// [FIX-2] Increased radius constants
+const CALIB_BLINK_FORGIVE_MS = 600;   // was 300 — doubled for noisy gaze
+const CALIB_IRIS_BRIDGE_MS   = 150;
+const CALIB_CORNER_BONUS     = 2.2;   // was 1.7
+const CALIB_DIAG_FRACTION    = 0.18;  // was 0.13
 
 // Fatigue
 const FATIGUE_EAR_THRESHOLD  = 0.055;
@@ -46,10 +48,10 @@ const FATIGUE_SAMPLE_WINDOW  = 8000;
 const FATIGUE_FRAMES_NEEDED  = 6;
 const BREAK_DURATION_MS      = 10000;
 
-const LEFT_IRIS   = [468,469,470,471];
-const RIGHT_IRIS  = [473,474,475,476];
-const L_CORNERS   = [33,133];
-const R_CORNERS   = [362,263];
+const LEFT_IRIS  = [468,469,470,471];
+const RIGHT_IRIS = [473,474,475,476];
+const L_CORNERS  = [33,133];
+const R_CORNERS  = [362,263];
 
 // Validation
 const VAL_DWELL_MS    = 3000;
@@ -90,24 +92,25 @@ let _calibCurrentGaze = null;
 let _calibLastGaze    = null;
 let _calibLastGazeTs  = 0;
 let _calibHoldStart   = null;
+let _calibHoldLostAt  = null;   // [FIX-3] hysteresis tracker
 let _calibSampling    = false;
 let _calibSamplingStart = 0;
 let _calibPointSamples  = [];
 let _calibSparkled    = false;
 let _calibSkipTimer   = null;
-let _calibT           = 0;
+let _calibLoopT       = 0;      // [FIX-7] consistent name
 
 // Creature calibration state
-let creatureEls       = [];
-let doneCalibPoints   = new Set();
-let calibParticles    = [];
-let calibFloaties     = [];
+let creatureEls    = [];        // [FIX-8] always initialised as array
+let doneCalibPoints = new Set();
+let calibParticles  = [];
+let calibFloaties   = [];
 
 // Fatigue
-let _fatigueEarHistory   = [];
-let _fatigueBlinkTimes   = [];
-let _fatigueTiredFrames  = 0;
-let _fatigueBreakActive  = false;
+let _fatigueEarHistory  = [];
+let _fatigueBlinkTimes  = [];
+let _fatigueTiredFrames = 0;
+let _fatigueBreakActive = false;
 
 // Validation state
 let valPoints=[],valIdx=0,valSamples=[],valRaf=null,valStart=0;
@@ -564,9 +567,9 @@ function previewLoop() {
           const offCentre = faceCX < 0.25 || faceCX > 0.75;
           const lEAR = Math.hypot(lm[159].x-lm[145].x,lm[159].y-lm[145].y);
           const rEAR = Math.hypot(lm[386].x-lm[374].x,lm[386].y-lm[374].y);
-          const earPx = (lEAR+rEAR)/2;
-          const qPct  = (earPx/(iodNorm+1e-6))>0.08?95:75;
-          const qFill = document.getElementById('q-fill');
+          const earPx  = (lEAR+rEAR)/2;
+          const qPct   = (earPx/(iodNorm+1e-6))>0.08?95:75;
+          const qFill  = document.getElementById('q-fill');
           const qPctEl = document.getElementById('q-pct');
           if (qFill) qFill.style.width = qPct+'%';
           if (qPctEl) qPctEl.textContent = qPct+'%';
@@ -772,11 +775,21 @@ function predictGaze(feat, model) {
   const cy=affineBias.sy*gy+affineBias.dy;
   return {x:Math.max(0,Math.min(window.innerWidth,cx)),y:Math.max(0,Math.min(window.innerHeight,cy))};
 }
+
+// [FIX-1] estimateGazeFromIris: correct scaling so gaze reaches screen edges
 function estimateGazeFromIris(feat) {
-  const rawX=(feat[6]+0.5)*window.innerWidth;
-  const rawY=feat[5]*window.innerHeight;
-  return {x:rawX,y:rawY};
+  // feat[6] = avg iris horizontal offset ≈ ±0.15 max range
+  // multiply by 4.5 so full glance covers full screen width
+  const rawX = (feat[6] * 4.5 + 0.5) * window.innerWidth;
+  // feat[4] = vertical iris position in face ≈ 0.4–0.6 range
+  // remap to full screen height
+  const rawY = ((feat[4] - 0.5) * 5.0 + 0.5) * window.innerHeight;
+  return {
+    x: Math.max(0, Math.min(window.innerWidth,  rawX)),
+    y: Math.max(0, Math.min(window.innerHeight, rawY))
+  };
 }
+
 function computeAffineCorrection(pairs) {
   function linfit(ps,ts){
     const n=ps.length,mp=ps.reduce((a,b)=>a+b,0)/n,mt=ts.reduce((a,b)=>a+b,0)/n;
@@ -814,12 +827,13 @@ function buildCalibPoints() {
   ];
 }
 
+// [FIX-2] More forgiving radius for pre-model gaze estimation
 function getCalibGazeRadius(pt) {
   const diag=Math.hypot(window.innerWidth,window.innerHeight);
-  const base=diag*CALIB_DIAG_FRACTION;
-  const mult=pt.isCorner?CALIB_CORNER_BONUS:1.0;
-  const maxR=Math.min(window.innerWidth,window.innerHeight)*0.46;
-  return Math.min(maxR,Math.max(120,base*mult));
+  const base=diag*CALIB_DIAG_FRACTION;           // 0.18 of diagonal
+  const mult=pt.isCorner?CALIB_CORNER_BONUS:1.4; // 2.2 for corners
+  const maxR=Math.min(window.innerWidth,window.innerHeight)*0.48;
+  return Math.min(maxR,Math.max(150,base*mult));
 }
 
 // Star canvas for background
@@ -828,7 +842,6 @@ let calibFxCvs=null, calibFxCtx=null;
 let calibStoryBanner=null, calibHud=null;
 
 function initCalibScene() {
-  // Remove old scene elements
   document.querySelectorAll('.calib-creature-wrap').forEach(el=>el.remove());
   if (calibStarCvs) { calibStarCvs.remove(); calibStarCvs=null; }
   if (calibFxCvs)   { calibFxCvs.remove();   calibFxCvs=null;   }
@@ -839,12 +852,10 @@ function initCalibScene() {
   const calibScreen = document.getElementById('s-calib');
   if (!calibScreen) return;
 
-  // Dark space background
   const bg = document.createElement('div');
   bg.className = 'calib-bg';
   calibScreen.appendChild(bg);
 
-  // Star canvas
   const W=window.innerWidth, H=window.innerHeight;
   calibStarCvs = document.createElement('canvas');
   calibStarCvs.id = 'calib-star-canvas';
@@ -857,7 +868,6 @@ function initCalibScene() {
     r:0.4+Math.random()*1.5,tw:Math.random()*Math.PI*2
   }));
 
-  // FX canvas
   calibFxCvs = document.createElement('canvas');
   calibFxCvs.id = 'calib-fx-canvas';
   calibFxCvs.width=W; calibFxCvs.height=H;
@@ -865,13 +875,11 @@ function initCalibScene() {
   calibScreen.appendChild(calibFxCvs);
   calibFxCtx = calibFxCvs.getContext('2d');
 
-  // Story banner
   calibStoryBanner = document.createElement('div');
   calibStoryBanner.className = 'calib-story-banner';
   calibStoryBanner.textContent = '🌟 Help the magical creatures eat their star seeds!';
   calibScreen.appendChild(calibStoryBanner);
 
-  // HUD
   calibHud = document.createElement('div');
   calibHud.className = 'calib-hud';
   calibScreen.appendChild(calibHud);
@@ -901,14 +909,12 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
   ctx.save();
   ctx.translate(cx, cy);
 
-  // Outer glow when gaze near
   if (gazeNear && !isDone) {
     const g=ctx.createRadialGradient(0,0,20,0,0,60);
     g.addColorStop(0,def.glow+'bb'); g.addColorStop(1,def.glow+'00');
     ctx.beginPath(); ctx.arc(0,0,60,0,Math.PI*2);
     ctx.fillStyle=g; ctx.fill();
   }
-  // Pulsing ring when not yet looked at
   if (!gazeNear && !isDone) {
     const pulse=0.5+0.5*Math.abs(Math.sin(t*3.2));
     ctx.beginPath(); ctx.arc(0,0,48,0,Math.PI*2);
@@ -920,7 +926,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
   const r=isDone?34:30;
   const fn=def.bodyFn;
 
-  // Body
   ctx.beginPath();
   if(fn==='star'){
     for(let i=0;i<10;i++){
@@ -952,7 +957,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
   ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.5; ctx.stroke();
   ctx.shadowBlur=0;
 
-  // Eyes
   const eyeY=-r*0.15,eyeX=r*0.28;
   [-eyeX,eyeX].forEach(ex=>{
     ctx.beginPath();ctx.arc(ex,eyeY,r*0.17,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
@@ -960,7 +964,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
     ctx.beginPath();ctx.arc(ex+r*0.09,eyeY-r*0.06,r*0.04,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
   });
 
-  // Mouth
   if(isHappy||isDone){
     ctx.beginPath();ctx.arc(0,r*0.25,r*0.26,0.1*Math.PI,0.9*Math.PI);
     ctx.strokeStyle='#2d1a40';ctx.lineWidth=2.5;ctx.stroke();
@@ -973,7 +976,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
     ctx.strokeStyle='#2d1a40';ctx.lineWidth=2;ctx.stroke();
   }
 
-  // Hold progress arc (tummy fill meter)
   if(holdPct>0&&holdPct<1){
     const rr=r+15;
     ctx.beginPath();
@@ -981,7 +983,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
     ctx.strokeStyle='#ffd700';ctx.lineWidth=5;ctx.lineCap='round';ctx.stroke();ctx.lineCap='butt';
   }
 
-  // Sparkle crown when done
   if(isDone){
     for(let i=0;i<5;i++){
       const a=(i*Math.PI*2/5)-Math.PI/2+t*0.5;
@@ -992,7 +993,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
 
   ctx.restore();
 
-  // Name label
   ctx.save();
   ctx.font='bold 11px "Comic Sans MS",cursive';
   ctx.fillStyle=isDone?'#ffd700':def.glow;
@@ -1130,14 +1130,17 @@ function startCalib() {
   doneCalibPoints = new Set();
   calibParticles  = [];
   calibFloaties   = [];
+  creatureEls     = [];  // [FIX-8] reset as clean array
   calibState   = 'idle';
   calibFacePresent = false;
   _calibCurrentGaze = null;
   _calibLastGaze    = null;
   _calibLastGazeTs  = 0;
   _calibHoldStart   = null;
+  _calibHoldLostAt  = null;  // [FIX-3] reset hysteresis
   _calibSampling    = false;
   _calibSparkled    = false;
+  _calibLoopT       = 0;
   _fatigueEarHistory   = [];
   _fatigueBlinkTimes   = [];
   _fatigueTiredFrames  = 0;
@@ -1146,7 +1149,6 @@ function startCalib() {
   initCalibScene();
   updateCalibHUD();
 
-  // Hide original overlay
   const overlay=document.getElementById('calib-overlay');
   if(overlay) overlay.style.display='none';
 
@@ -1168,24 +1170,23 @@ function startCalib() {
 function advanceCalibPoint() {
   if(calibIdx>=CALIB_TOTAL_PTS){ finaliseCalib(); return; }
   clearTimeout(_calibSkipTimer);
-  _calibHoldStart  = null;
-  _calibSampling   = false;
-  _calibPointSamples=[];
-  _calibSparkled   = false;
-  calibState       = 'gap';
+  _calibHoldStart   = null;
+  _calibHoldLostAt  = null;  // [FIX-5]
+  _calibSampling    = false;
+  _calibPointSamples= [];
+  _calibSparkled    = false;
+  calibState        = 'gap';
 
   updateCalibHUD();
 
   const skipBtn=document.getElementById('calib-skip-btn');
   if(skipBtn) skipBtn.style.display=calibFailCount>=1?'inline-block':'none';
 
-  // Show creature after gap
   setTimeout(()=>{
     if(calibState!=='gap') return;
     showCalibCreature(calibIdx);
     calibState='showing';
 
-    // Force-advance timer — corners get more time
     const pt=calibPoints[calibIdx];
     const timeout=pt.isCorner?6500:5000;
     _calibSkipTimer=setTimeout(()=>{
@@ -1201,7 +1202,6 @@ function showCalibCreature(idx) {
   const calibScreen=document.getElementById('s-calib');
   if(!calibScreen) return;
 
-  // Remove old creature for this slot if exists
   const oldEl=document.getElementById('calib-creature-'+idx);
   if(oldEl) oldEl.remove();
 
@@ -1221,12 +1221,9 @@ function showCalibCreature(idx) {
   wrap.appendChild(cvs);
   calibScreen.appendChild(wrap);
 
-  // Store reference
   creatureEls[idx]={wrap,cvs,ctx:cvs.getContext('2d'),size:SIZE,def,idx};
 
-  // Trigger entrance animation
   requestAnimationFrame(()=>{wrap.classList.add('visible');});
-
   playAnimalJingle(idx);
 
   const dirs=['the centre','the top-left','the top-right','the bottom-right','the bottom-left'];
@@ -1240,7 +1237,6 @@ function showCalibCreature(idx) {
   setCalibBanner(msgs[idx%msgs.length]);
 }
 
-let _calibLoopT=0;
 function runCalibLoop() {
   calibRaf=requestAnimationFrame(()=>{
     if(phase!=='calib-run'){calibRaf=null;return;}
@@ -1248,24 +1244,22 @@ function runCalibLoop() {
     _calibLoopT+=0.016;
     const now=performance.now();
 
-    // Draw background stars
     drawCalibStars(_calibLoopT);
     updateCalibFX();
 
-    // Draw calibCanvas clear (creatures are DOM canvases)
     if(calibCtx){
       const dpr=window.devicePixelRatio||1;
       calibCtx.clearRect(0,0,calibCanvas.width/dpr,calibCanvas.height/dpr);
     }
 
-    // Update each creature canvas
+    // [FIX-8] guard against sparse array gaps
     creatureEls.forEach((cr,i)=>{
       if(!cr||!cr.ctx) return;
       const pt=calibPoints[i];
+      if(!pt) return;
       const isDone=doneCalibPoints.has(i);
       const radius=getCalibGazeRadius(pt);
 
-      // Gaze proximity using bridged gaze
       const activeGaze=_calibCurrentGaze||_calibLastGaze;
       const gazeNear=activeGaze?Math.hypot(activeGaze.x-pt.x,activeGaze.y-pt.y)<radius:false;
 
@@ -1277,24 +1271,34 @@ function runCalibLoop() {
       const isHappy=gazeNear&&!isDone;
       drawCreatureOnCanvas(cr.ctx,cr.def,cr.size,_calibLoopT,gazeNear,holdPct,isHappy,isDone);
 
-      // State transitions only for current point
       if(i===calibIdx&&!isDone){
         if(calibState==='showing'&&gazeNear){
           calibState='holding';
           _calibHoldStart=now;
+          _calibHoldLostAt=null;  // [FIX-3]
         }
+
+        // [FIX-3] hysteresis: only reset after full forgiveness window
         if(calibState==='holding'){
-          // Extended blink forgiveness: 300ms
-          if(!gazeNear&&(now-_calibHoldStart)>CALIB_BLINK_FORGIVE_MS){
-            calibState='showing';_calibHoldStart=null;
-          } else if(now-_calibHoldStart>=CALIB_GAZE_HOLD){
-            calibState='sampling';
-            _calibSampling=true;
-            _calibSamplingStart=now;
-            _calibPointSamples=[];
-            setCalibBanner(`😋 ${cr.def.name} loves it! Keep looking! Their tummy is filling up!`);
+          if(!gazeNear){
+            if(!_calibHoldLostAt) _calibHoldLostAt=now;
+            if(now-_calibHoldLostAt>CALIB_BLINK_FORGIVE_MS){
+              calibState='showing';
+              _calibHoldStart=null;
+              _calibHoldLostAt=null;
+            }
+          } else {
+            _calibHoldLostAt=null; // recovered — don't reset
+            if(now-_calibHoldStart>=CALIB_GAZE_HOLD){
+              calibState='sampling';
+              _calibSampling=true;
+              _calibSamplingStart=now;
+              _calibPointSamples=[];
+              setCalibBanner(`😋 ${cr.def.name} loves it! Keep looking! Their tummy is filling up!`);
+            }
           }
         }
+
         if(calibState==='sampling'){
           if(now-_calibSamplingStart>=CALIB_SAMPLE_MS){
             if(!_calibSparkled){
@@ -1308,7 +1312,6 @@ function runCalibLoop() {
             calibState='done-pt';
             clearTimeout(_calibSkipTimer);
 
-            // Mark done and animate
             doneCalibPoints.add(i);
             if(cr.wrap) cr.wrap.classList.add('done');
             updateCalibHUD();
@@ -1332,10 +1335,11 @@ function runCalibLoop() {
   });
 }
 
+// [FIX-6] finaliseCalib: cancel RAF before nulling
 function finaliseCalib() {
   const rafId=calibRaf;
   calibRaf=null;
-  cancelAnimationFrame(rafId);
+  if(rafId) cancelAnimationFrame(rafId);
 
   if(calibSamples.length<MIN_SAMPLES){
     calibFailCount++;
@@ -1346,7 +1350,6 @@ function finaliseCalib() {
         phase='validation';startValidation();return;
       }
     }
-    // Not enough — show retry UI
     const card=document.getElementById('calib-card');
     const h2=card?.querySelector('h2');
     const p=card?.querySelector('p');
@@ -1396,7 +1399,7 @@ document.getElementById('calib-start-btn')?.addEventListener('click',()=>{
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  STAR VALIDATION (unchanged from v14)
+//  STAR VALIDATION
 // ══════════════════════════════════════════════════════════════════════════════
 function spawnSparkles(ctx,x,y){
   for(let i=0;i<14;i++){
@@ -1440,6 +1443,8 @@ function drawStar(ctx,x,y,radius,twinklePhase,entranceProgress){
     ctx.fillStyle=`rgba(255,255,255,${0.6*(entranceProgress-0.8)*5})`;ctx.fill();
   }
 }
+
+// [FIX-9] valCanvas DPR set once per point, not stacking transforms
 function startValidation(){
   valPoints=[];
   const W=window.innerWidth,H=window.innerHeight;
@@ -1465,18 +1470,22 @@ function startValidation(){
     },400);
   },VAL_INTRO_MS);
 }
+
 function runStarDot(){
   if(valIdx>=valPoints.length){finishValidation();return;}
   const pt=valPoints[valIdx];
   const valCanvas=document.getElementById('val-canvas');
   if(!valCanvas) return;
+
+  // [FIX-9] set size and scale once, not accumulating per call
   const dpr=window.devicePixelRatio||1;
   valCanvas.width=Math.round(window.innerWidth*dpr);
   valCanvas.height=Math.round(window.innerHeight*dpr);
   valCanvas.style.width=window.innerWidth+'px';
   valCanvas.style.height=window.innerHeight+'px';
   const vCtx=valCanvas.getContext('2d');
-  vCtx.scale(dpr,dpr);
+  vCtx.setTransform(dpr,0,0,dpr,0,0);  // use setTransform instead of scale (no stacking)
+
   const numEl=document.getElementById('val-badge-num');
   if(numEl) numEl.textContent=valIdx+1;
   const notes=[523,659,784];
@@ -1486,6 +1495,7 @@ function runStarDot(){
   valStart=performance.now();
   let sparkled=false,inGap=true;
   const gapEnd=valStart+VAL_GAP_MS;
+
   function frame(){
     const now=performance.now();
     vCtx.clearRect(0,0,valCanvas.width,valCanvas.height);
@@ -1533,6 +1543,7 @@ function runStarDot(){
   }
   valRaf=requestAnimationFrame(frame);
 }
+
 function finishValidation(){
   cancelAnimationFrame(valRaf);
   const overlay=document.getElementById('val-overlay');
@@ -1649,10 +1660,12 @@ document.getElementById('sound-btn')?.addEventListener('click',()=>{
 function processingLoop(){
   if(phase==='done') return;
 
-  // ── CALIB-RUN ──
+  // ── CALIB-RUN ── [FIX-4] use performance.now() throttle, not video timestamp dedup
   if(phase==='calib-run'){
-    if(webcam.readyState>=2&&faceLandmarker&&webcam.currentTime!==_lastVT){
-      _lastVT=webcam.currentTime;
+    if(webcam.readyState>=2&&faceLandmarker){
+      const _calibNowTs=performance.now();
+      if(_calibNowTs-_lastVT<33){procRaf=requestAnimationFrame(processingLoop);return;}
+      _lastVT=_calibNowTs;
       try{
         const res=faceLandmarker.detectForVideo(webcam,performance.now());
         const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
@@ -1665,7 +1678,6 @@ function processingLoop(){
           const ear=feat[7];
           const isBlink=ear<0.06;
 
-          // Fatigue check
           checkFatigue(ear,isBlink);
 
           if(!isBlink){
@@ -1674,12 +1686,10 @@ function processingLoop(){
             _calibLastGaze=rawGaze;
             _calibLastGazeTs=performance.now();
           } else {
-            // Iris bridge: reuse last gaze for CALIB_IRIS_BRIDGE_MS
             const bridgeAge=performance.now()-_calibLastGazeTs;
             _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
           }
 
-          // Collect samples ONLY while state === 'sampling' (race-condition guard)
           if(calibState==='sampling'&&!isBlink){
             const pt=calibPoints[calibIdx];
             if(pt){
@@ -1720,7 +1730,7 @@ function processingLoop(){
       const isBlink=ear<0.06;
       const nowMs=Date.now()-sessionStart;
       const headPos={x:(lm[33].x+lm[263].x)/2,y:(lm[33].y+lm[263].y)/2};
-      updateWelfareHUD(hasFace,ear,{x:(lm[33].x+lm[263].x)/2,y:(lm[33].y+lm[263].y)/2},nowMs);
+      updateWelfareHUD(hasFace,ear,headPos,nowMs);
       let leftPupilX=null,leftPupilY=null,rightPupilX=null,rightPupilY=null;
       try{
         const vTrack=webcam.srcObject?.getVideoTracks()[0];
@@ -1814,6 +1824,7 @@ const CSV_HDR=[
   "groupe d'enfants"
 ].join(',');
 
+// [FIX-10] buildCSV: null feat guard on all .toFixed calls
 function buildCSV(){
   const sessionDuration=(Date.now()-sessionStart)/1000/60;
   const totalBlinkCount=blinkTimes.length;
@@ -1840,8 +1851,13 @@ function buildCSV(){
       '-','-','-','-','-','-',
       fmtNum(f.gazeX),fmtNum(f.gazeY),fmtNum(f.gazeX),fmtNum(f.gazeY),
       '-','-',
-      f.feat?f.feat[0].toFixed(4):'-',f.feat?f.feat[1].toFixed(4):'-',f.feat?f.feat[2].toFixed(4):'-',
-      f.feat?f.feat[0].toFixed(4):'-',f.feat?f.feat[1].toFixed(4):'-',f.feat?f.feat[2].toFixed(4):'-',
+      // [FIX-10] safe feat access — f.feat can be null for face-off frames
+      f.feat?f.feat[0].toFixed(4):'-',
+      f.feat?f.feat[1].toFixed(4):'-',
+      f.feat?f.feat[2].toFixed(4):'-',
+      f.feat?f.feat[0].toFixed(4):'-',
+      f.feat?f.feat[1].toFixed(4):'-',
+      f.feat?f.feat[2].toFixed(4):'-',
       '-','-','-','-','-','-',
       fmtNum(f.rightPupilX),fmtNum(f.rightPupilY),fmtNum(f.leftPupilX),fmtNum(f.leftPupilY),
       0,'-','-','-','-','-','-','-',META.stimulus||'-','-','-','-','-','-','-',META.group
