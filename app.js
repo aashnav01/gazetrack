@@ -2,22 +2,19 @@
  * GazeTrack v14 – Device‑Adaptive (Child‑Proof Edition)
  * =============================================================================
  * - Full SMI RED‑format CSV output with Fixation/Saccade/Blink classification
- * - Child‑friendly "balloon animal" calibration: gaze‑contingent, animated,
- *   sound‑paired, 5‑point grid (centre + four corners)
- * - NEW: dynamic gaze radius based on screen size (15‑25% of screen)
- * - NEW: minimal confetti (30 particles) after each successful animal
- * - FIX: null‑style errors guarded
- * - FIX: skip timer now forces advancement even if child never looks
- * - Tablet‑ready & laptop‑friendly: touch events, responsive sizing, orientation handling
+ * - Point‑by‑point animal calibration with adaptive parameters (corners easier)
+ * - NEW: dynamic gaze radius, hold time, sample time based on distance from centre
+ * - NEW: brief look‑away tolerance during sampling
+ * - NEW: minimal confetti after each successful point
+ * - Tablet‑ready & laptop‑friendly
  *
  * 🧸 CHILD‑PROOF ENHANCEMENTS:
- *   - Gaze radius adapts to screen size (forgiving on any device)
- *   - Force‑skip timer fixed (moves to next animal after 4 s even without look)
- *   - Blink forgiveness (200ms grace before resetting hold)
- *   - Gap animation (pulsing ring)
+ *   - Adaptive parameters: centre strict, corners forgiving
+ *   - Force‑skip timer (4s) moves to next point even if child never looks
+ *   - Blink forgiveness (200ms grace)
  *   - Skip button appears after 1 failed attempt
- *   - Reduced calibration points (5 instead of 9)
- *   - Shortened validation (3 stars, shorter dwell)
+ *   - 5 calibration points (centre + four corners)
+ *   - Short validation (3 stars)
  */
 
 console.log('%c GazeTrack v14 (Device‑Adaptive)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
@@ -32,14 +29,18 @@ const MP_DELEGATE = isMobile ? 'CPU' : 'GPU';
 const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent) || (window.innerWidth >= 768 && window.innerWidth <= 1280);
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const CALIB_DWELL_MS    = 2200;   // ms child must gaze at each animal before sample taken
-// CALIB_GAZE_RADIUS is now dynamic (percentage of screen) – see runCalibLoop
-const CALIB_GAZE_HOLD   = 600;    // ms gaze must stay on target before sampling starts
-const CALIB_SAMPLE_MS   = 800;    // ms of samples collected per point
-const CALIB_TOTAL_PTS   = 5;      // 5-point grid (centre + four corners)
+const CALIB_TOTAL_PTS   = 5;      // centre + four corners
 const CALIB_GAP_MS      = 700;    // ms between points
 const MIN_SAMPLES       = 25;
 const RIDGE_ALPHA       = 0.01;
+
+// Base values – will be adapted per point
+const BASE_GAZE_RADIUS  = 250;    // px at centre
+const CORNER_GAZE_RADIUS= 400;    // px at farthest corner
+const BASE_HOLD_MS      = 600;    // ms at centre
+const CORNER_HOLD_MS    = 400;    // ms at corners
+const BASE_SAMPLE_MS    = 800;    // ms at centre
+const CORNER_SAMPLE_MS  = 600;    // ms at corners
 
 const LEFT_IRIS   = [468,469,470,471];
 const RIGHT_IRIS  = [473,474,475,476];
@@ -73,16 +74,29 @@ let gazeModel = null;
 let calibSamples = [];
 let affineBias = {dx:0, dy:0, sx:1, sy:1};
 
-// Calibration state
+// Calibration state (point‑by‑point)
 let calibPoints = [];
 let calibIdx = 0;
 let calibRaf = null;
-let calibGazeHoldStart = null;
-let calibSamplesForPoint = [];
-let calibPhaseTimer = null;
-let calibState = 'idle'; // idle | showing | holding | sampling | gap
-let calibFailCount = 0;          // number of consecutive failed calibration attempts
-let calibSkipActive = false;     // whether we are in skip mode (no model, just record raw data)
+let calibState = 'idle'; // gap | showing | holding | sampling | done-point
+let calibFailCount = 0;
+let calibSkipActive = false;
+
+// Per‑point timers & adaptive params
+let _calibT = 0;
+let _calibGapStart = 0;
+let _calibPointStart = 0;
+let _calibHoldStart = null;
+let _calibSamplingStart = 0;
+let _calibSamplingMisses = 0;
+let _calibSkipTimer = null;
+let _calibSparkled = false;
+let _calibCurrentGaze = null;
+
+// For adaptive parameters
+let currentHoldMs = BASE_HOLD_MS;
+let currentSampleMs = BASE_SAMPLE_MS;
+let currentGazeRadius = BASE_GAZE_RADIUS;
 
 // Validation state
 let valPoints=[], valIdx=0, valSamples=[], valRaf=null, valStart=0;
@@ -698,7 +712,7 @@ function computeAffineCorrection(pairs) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  CHILD-FRIENDLY CALIBRATION
+//  ADAPTIVE CALIBRATION (Point‑by‑point)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function buildCalibPoints() {
@@ -706,11 +720,11 @@ function buildCalibPoints() {
   const mx = W/2, my = H/2;
   const px = Math.max(90, W * 0.13), py = Math.max(80, H * 0.14);
   return [
-    {x:mx,      y:my      },
-    {x:px,      y:py      },
-    {x:W-px,    y:py      },
-    {x:W-px,    y:H-py    },
-    {x:px,      y:H-py    },
+    {x:mx,      y:my      }, // centre
+    {x:px,      y:py      }, // top‑left
+    {x:W-px,    y:py      }, // top‑right
+    {x:W-px,    y:H-py    }, // bottom‑right
+    {x:px,      y:H-py    }, // bottom‑left
   ];
 }
 const ANIMALS = ['cat','rabbit','bear','frog','duck'];
@@ -721,15 +735,19 @@ const ANIMAL_PALETTES = [
   {body:'#95d5b2',ear:'#52b788',eye:'#1b4332',bg:'#d8f3dc'},
   {body:'#ffd166',ear:'#ef476f',eye:'#073b4c',bg:'#06d6a0'},
 ];
+
 function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
   const r = Math.round(Math.max(44, Math.min(window.innerWidth, window.innerHeight) * 0.085)) * scale;
   const bob = Math.sin(t * 3.5) * r * 0.12;
   const wiggle = Math.sin(t * 7) * 0.06;
   const pal = ANIMAL_PALETTES[ANIMALS.indexOf(type)] || ANIMAL_PALETTES[0];
   const cy = y + bob;
+
   ctx.save();
   ctx.translate(x, cy);
   ctx.rotate(wiggle);
+
+  // Glow ring when gaze is near
   if (gazeNear) {
     ctx.beginPath();
     ctx.arc(0, 0, r * 1.55, 0, Math.PI * 2);
@@ -739,24 +757,30 @@ function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
     ctx.fillStyle = g;
     ctx.fill();
   }
+
+  // Shadow
   ctx.save();
   ctx.globalAlpha = 0.12;
   ctx.beginPath();
   ctx.ellipse(0, r + 5, r*0.85, r*0.2, 0, 0, Math.PI*2);
   ctx.fillStyle = '#000'; ctx.fill();
   ctx.restore();
+
+  // Body
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI*2);
   ctx.fillStyle = pal.body; ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 2; ctx.stroke();
-  // eyes
+
+  // Eyes
   [-0.28, 0.28].forEach(ex => {
     const eyeY = -r*0.12;
     ctx.beginPath(); ctx.arc(ex*r, eyeY, r*0.15, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
     ctx.beginPath(); ctx.arc(ex*r + r*0.04, eyeY, r*0.08, 0, Math.PI*2); ctx.fillStyle = pal.eye; ctx.fill();
     ctx.beginPath(); ctx.arc(ex*r + r*0.07, eyeY - r*0.05, r*0.03, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
   });
-  // mouth
+
+  // Mouth
   if (happy) {
     ctx.beginPath(); ctx.arc(0, r*0.28, r*0.22, 0.1*Math.PI, 0.9*Math.PI);
     ctx.strokeStyle = pal.eye; ctx.lineWidth = 2.5; ctx.stroke();
@@ -764,6 +788,7 @@ function drawAnimal(ctx, type, x, y, t, scale, happy, gazeNear) {
     ctx.beginPath(); ctx.arc(0, r*0.4, r*0.16, Math.PI*1.1, Math.PI*1.9);
     ctx.strokeStyle = pal.eye; ctx.lineWidth = 2; ctx.stroke();
   }
+
   ctx.restore();
 }
 
@@ -792,11 +817,11 @@ function updateCalibParticles(ctx) {
 }
 
 function startCalib() {
-  calibPoints   = buildCalibPoints();
-  calibSamples  = [];
-  calibIdx      = 0;
+  calibPoints = buildCalibPoints();
+  calibSamples = [];
+  calibIdx = 0;
   CALIB_PARTICLES.length = 0;
-  calibState    = 'gap';
+  calibState = 'gap';
   calibFacePresent = false;
 
   const prog = document.getElementById('calib-progress');
@@ -816,6 +841,7 @@ function startCalib() {
 
   advanceCalibPoint();
 }
+
 function updateCalibProgress() {
   const prog = document.getElementById('calib-progress');
   if (!prog) return;
@@ -829,17 +855,6 @@ function updateCalibProgress() {
   }
 }
 
-let _calibT = 0;
-let _calibGapStart = 0;
-let _calibPointStart = 0;
-let _calibHoldStart = null;
-let _calibSampling = false;
-let _calibSamplingStart = 0;
-let _calibPointSamples = [];
-let _calibSkipTimer = null;
-let _calibSparkled = false;
-let _calibCurrentGaze = null;
-
 function advanceCalibPoint() {
   if (calibIdx >= CALIB_TOTAL_PTS) {
     finaliseCalib();
@@ -848,8 +863,7 @@ function advanceCalibPoint() {
   clearTimeout(_calibSkipTimer);
   _calibT = 0;
   _calibHoldStart = null;
-  _calibSampling = false;
-  _calibPointSamples = [];
+  _calibSamplingMisses = 0;
   _calibSparkled = false;
   calibState = 'gap';
   _calibGapStart = performance.now();
@@ -859,6 +873,8 @@ function advanceCalibPoint() {
     calibState = 'showing';
     _calibPointStart = performance.now();
     playAnimalJingle(calibIdx);
+
+    // Force‑skip timer (4s) – moves to next point even if child never looks
     _calibSkipTimer = setTimeout(() => {
       if (calibState !== 'done-point') {
         if (calibIdx < calibPoints.length) {
@@ -902,18 +918,20 @@ function runCalibLoop() {
         const pt = calibPoints[calibIdx];
         const animal = ANIMALS[calibIdx % ANIMALS.length];
 
-        // 👀 Dynamic gaze radius based on screen size and distance from centre
+        // Adaptive parameters based on distance from screen centre
         const screenCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         const distFromCenter = Math.hypot(pt.x - screenCenter.x, pt.y - screenCenter.y);
-        const maxDist = Math.hypot(window.innerWidth / 2, window.innerHeight / 2);
-        const baseRadius = Math.min(window.innerWidth, window.innerHeight) * 0.15;   // 15% of smaller dimension
-        const maxRadius   = Math.min(window.innerWidth, window.innerHeight) * 0.25; // 25% at corners
-        const actualGazeRadius = baseRadius + (maxRadius - baseRadius) * (distFromCenter / maxDist);
+        const maxDist = Math.hypot(screenCenter.x, screenCenter.y);
+        const factor = Math.min(1, distFromCenter / maxDist); // 0 at centre, 1 at farthest corner
+
+        currentGazeRadius = BASE_GAZE_RADIUS + (CORNER_GAZE_RADIUS - BASE_GAZE_RADIUS) * factor;
+        currentHoldMs     = Math.max(CORNER_HOLD_MS, BASE_HOLD_MS - (BASE_HOLD_MS - CORNER_HOLD_MS) * factor);
+        currentSampleMs   = Math.max(CORNER_SAMPLE_MS, BASE_SAMPLE_MS - (BASE_SAMPLE_MS - CORNER_SAMPLE_MS) * factor);
 
         let gazeNear = false;
         if (_calibCurrentGaze) {
           const dist = Math.hypot(_calibCurrentGaze.x - pt.x, _calibCurrentGaze.y - pt.y);
-          gazeNear = dist < actualGazeRadius;
+          gazeNear = dist < currentGazeRadius;
         }
 
         const happy = gazeNear;
@@ -923,6 +941,7 @@ function runCalibLoop() {
 
         drawAnimal(calibCtx, animal, pt.x, pt.y, _calibT, Math.min(entScale, 1.05), happy, gazeNear);
 
+        // State transitions
         if (calibState === 'showing' && gazeNear && entrance >= 0.9) {
           calibState = 'holding';
           _calibHoldStart = now;
@@ -931,19 +950,28 @@ function runCalibLoop() {
           if (!gazeNear && (now - _calibHoldStart) > 200) {
             calibState = 'showing';
             _calibHoldStart = null;
-          } else if (now - _calibHoldStart >= CALIB_GAZE_HOLD) {
+          } else if (now - _calibHoldStart >= currentHoldMs) {
             calibState = 'sampling';
-            _calibSampling = true;
             _calibSamplingStart = now;
-            _calibPointSamples = [];
+            _calibSamplingMisses = 0;
           }
         }
         if (calibState === 'sampling') {
-          if (now - _calibSamplingStart >= CALIB_SAMPLE_MS) {
+          // Allow brief look‑aways: if gaze away for >200ms cumulative, abort
+          if (!gazeNear) {
+            _calibSamplingMisses++;
+            if (_calibSamplingMisses > 10) { // ~200ms at 50fps
+              calibState = 'showing';
+              _calibHoldStart = null;
+            }
+          } else {
+            _calibSamplingMisses = 0;
+          }
+
+          if (now - _calibSamplingStart >= currentSampleMs) {
             if (!_calibSparkled) {
               spawnCalibParticles(pt.x, pt.y);
               playSuccessChime();
-              // 🎉 Minimal confetti on successful completion of this point
               startConfetti();
               _calibSparkled = true;
             }
@@ -953,8 +981,9 @@ function runCalibLoop() {
           }
         }
 
+        // Visual hold progress ring
         if (calibState === 'holding') {
-          const holdPct = (now - _calibHoldStart) / CALIB_GAZE_HOLD;
+          const holdPct = Math.min((now - _calibHoldStart) / currentHoldMs, 1);
           const r = Math.max(44, Math.min(window.innerWidth, window.innerHeight) * 0.085);
           calibCtx.beginPath();
           calibCtx.arc(pt.x, pt.y, r * 1.3, -Math.PI/2, -Math.PI/2 + holdPct * Math.PI * 2);
@@ -1357,11 +1386,11 @@ function processingLoop() {
     if (webcam.readyState >= 2 && faceLandmarker && webcam.currentTime !== _lastVT) {
       _lastVT = webcam.currentTime;
       try {
-        const res     = faceLandmarker.detectForVideo(webcam, performance.now());
+        const res = faceLandmarker.detectForVideo(webcam, performance.now());
         const hasFace = !!(res.faceLandmarks && res.faceLandmarks.length > 0);
         calibFacePresent = hasFace;
         if (hasFace) {
-          const lm  = res.faceLandmarks[0];
+          const lm = res.faceLandmarks[0];
           const mat = (res.facialTransformationMatrixes?.length > 0) ? res.facialTransformationMatrixes[0] : null;
           const feat = extractFeatures(lm, mat);
           const isBlink = feat[7] < 0.06;
@@ -1376,6 +1405,7 @@ function processingLoop() {
             _calibCurrentGaze = null;
           }
 
+          // Collect samples during sampling phase
           if (calibState === 'sampling' && !isBlink) {
             const pt = calibPoints[calibIdx];
             if (pt) calibSamples.push({feat, sx: pt.x, sy: pt.y});
@@ -1389,8 +1419,12 @@ function processingLoop() {
     return;
   }
 
-  if (phase === 'validation') { procRaf = requestAnimationFrame(processingLoop); return; }
+  if (phase === 'validation') {
+    procRaf = requestAnimationFrame(processingLoop);
+    return;
+  }
 
+  // Stimulus phase (unchanged from original)
   if (webcam.readyState >= 2 && faceLandmarker) {
     if (webcam.currentTime === _lastVT) { procRaf = requestAnimationFrame(processingLoop); return; }
     _lastVT = webcam.currentTime;
