@@ -821,14 +821,19 @@ function estimateGazeFromIris(feat) {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
-  // Horizontal — iris_h (feat[6]) range from logs: ≈ ±0.10
-  // Scale: at iris_h = +0.095 (max left) → should be x≈192 (15% of W)
-  //        at iris_h = -0.101 (max right) → should be x≈1088 (85% of W)
-  // Derived: scale = (0.85-0.15)W / (0.095+0.101) = 0.70W / 0.196 ≈ 3.57W
-  // But we keep some margin so use 5.0 with centred offset
-  const rawX = (-feat[6] * 5.0 + 0.5) * W;
+  // Calibrated from actual session logs:
+  // iris_h=+0.103 → user looking at x=192  (left corner,  15% of W=1280)
+  // iris_h=-0.081 → user looking at x=1088 (right corner, 85% of W=1280)
+  // Linear map: x = (-iris_h - (-0.081)) / (0.103 - (-0.081)) * (192 - 1088) + 1088
+  //           = (-iris_h + 0.081) / 0.184 * (-896) + 1088
+  // Simplified: x = (-iris_h * 4870) + (0.081*4870) + 192... → use slope/intercept form:
+  // slope = (192 - 1088) / (0.103 - (-0.081)) = -896 / 0.184 = -4870
+  // intercept = 192 - (-4870 * 0.103) = 192 + 501.6 = 693.6 ≈ centre of screen
+  // So: rawX = -feat[6] * 4870 + 693
+  // Round to clean: scale=4870, offset=0.54 (as fraction of W)
+  const rawX = (-feat[6] * 4870) + (W * 0.54);
 
-  // Vertical — use creature Y directly (no reliable vertical signal pre-calib)
+  // Vertical: use creature Y (no reliable vertical signal pre-calibration)
   const rawY = _calibTargetY >= 0 ? _calibTargetY : H * 0.5;
 
   return {
@@ -883,15 +888,13 @@ function buildCalibPoints() {
 // you can see exactly what the tracker thinks and diagnose any issues.
 
 function getCalibGazeRadius(pt) {
-  const diag = Math.hypot(window.innerWidth, window.innerHeight);
-  const base  = diag * CALIB_DIAG_FRACTION;
-  // Centre point gets huge radius — should never miss
-  if (!pt.isCorner) return Math.min(window.innerWidth, window.innerHeight) * 0.45;
-  // Bottom corners hardest to reach
-  const isBottomCorner = pt.y > window.innerHeight * 0.5;
-  const mult  = isBottomCorner ? 2.8 : 2.2;
-  const maxR  = Math.min(window.innerWidth, window.innerHeight) * 0.49;
-  return Math.min(maxR, Math.max(200, base * mult));
+  // Centre: large radius, just needs to be roughly central
+  if (!pt.isCorner) return Math.min(window.innerWidth, window.innerHeight) * 0.42;
+  // Corners: tighter — child must genuinely look toward that side
+  // From logs: iris_h spans ≈ ±0.10 across full screen width (1280px)
+  // So 1px ≈ 0.10/640 = 0.000156 iris units → radius of 200px ≈ iris_h of 0.031
+  // That's comfortably larger than noise (±0.01) but requires actual gaze direction
+  return 200;
 }
 
 const CALIB_DWELL_REQUIRED_MS = 1000; // ms of confirmed near-gaze to complete a point (was 1800)
@@ -1342,7 +1345,8 @@ function runCalibLoop() {
 
     _calibLoopT += 0.016;
     const now = performance.now();
-    const dt  = _calibLastFrameTs > 0 ? Math.min(now - _calibLastFrameTs, 100) : 16;
+    // Cap dt at 50ms max to prevent large spike on first frame after gap
+    const dt  = _calibLastFrameTs > 0 ? Math.min(now - _calibLastFrameTs, 50) : 16;
     _calibLastFrameTs = now;
 
     drawCalibStars(_calibLoopT);
@@ -1368,12 +1372,12 @@ function runCalibLoop() {
       // Tell estimateGazeFromIris what Y to use for this point
       if (i === calibIdx) _calibTargetY = pt.y;
 
-      // Horizontal-only distance pre-calib (Y is set to creature Y so dist is purely X)
+      // Pre-calib: horizontal-only check with tighter threshold
       // Full 2D Euclidean after model is trained
       const gazeNear = activeGaze
         ? (gazeModel
             ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
-            : Math.abs(activeGaze.x - pt.x) < radius * 1.2)  // 20% extra for iris noise
+            : Math.abs(activeGaze.x - pt.x) < radius * 0.6)  // tighter — was 1.2
         : false;
 
       // ── DWELL FILL — pure timer for ALL points, gaze speeds it up 3× ──────
@@ -1384,14 +1388,16 @@ function runCalibLoop() {
         && calibState !== 'gap' && calibState !== 'done-pt' && calibState !== 'idle');
 
       if (dwellActive) {
-        // Auto-transition 'showing' → 'holding' immediately
-        if (calibState === 'showing') calibState = 'holding';
-
-        if (gazeNear) {
-          // Gaze confirmed near — fill bar
+        // Auto-transition 'showing' → 'holding', but skip accumulation this frame
+        // so _calibLastFrameTs has time to produce a real dt on the next frame
+        if (calibState === 'showing') {
+          calibState = 'holding';
+          // Don't accumulate yet — first frame dt is unreliable
+        } else if (gazeNear) {
+          // Gaze confirmed near — fill bar at 1ms per ms
           _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
         } else {
-          // Gaze not near — bar does NOT fill, decays slightly
+          // Gaze not near — decay slowly
           _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * 0.3);
         }
         holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
