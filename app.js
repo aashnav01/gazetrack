@@ -13,6 +13,10 @@
  *   [FIX-8] creatureEls initialised as [] not sparse — forEach gap guard added
  *   [FIX-9] valCanvas DPR scale applied once per point (was stacking)
  *   [FIX-10] buildCSV: recordedFrames with null feat no longer crashes .toFixed
+ *   [FIX-11] MediaPipe timestamp monotonicity: mpNow() wrapper guarantees strictly
+ *            increasing timestamps on every detectForVideo call, fixing the
+ *            "Packet timestamp mismatch on norm_rect" crash from browser timer
+ *            precision clamping (privacy.resistFingerprinting etc.)
  */
 
 console.log('%c GazeTrack v15 (Star Keeper Edition — Fixed)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
@@ -66,6 +70,19 @@ const BAD_STREAK_HIDE    = 12;
 // Welfare monitor
 const BLINK_HISTORY_SIZE = 300;
 const DROWSY_THRESHOLD   = 12;
+
+// ─── MONOTONIC TIMESTAMP ─────────────────────────────────────────────────────
+// MediaPipe requires strictly-increasing timestamps on every detectForVideo call.
+// Browsers clamp performance.now() resolution (privacy), so the same ms value
+// can repeat or even go backwards across rapid RAF callbacks.
+// This wrapper guarantees the value always increases by at least 1 µs.
+let _mpLastTs = -1;
+function mpNow() {
+  const t = performance.now();
+  // Force strictly greater than last seen value
+  _mpLastTs = t > _mpLastTs ? t : _mpLastTs + 0.001;
+  return _mpLastTs;
+}
 
 // MongoDB
 const MONGO_API_URL = 'https://gazetrack-api.onrender.com/api/sessions';
@@ -546,8 +563,8 @@ function previewLoop() {
     const rect = camCanvas.getBoundingClientRect();
     const dW = Math.round(rect.width)||640, dH = Math.round(rect.height)||480;
     if (camCanvas.width !== dW || camCanvas.height !== dH) { camCanvas.width=dW; camCanvas.height=dH; }
-    let ts = camPreview.currentTime * 1000;
-    if (ts <= lastPreviewTs) ts = lastPreviewTs + 0.001;
+    // Use mpNow() — MediaPipe needs strictly-increasing timestamps
+    const ts = mpNow();
     lastPreviewTs = ts;
     try {
       const res = previewFl.detectForVideo(camPreview, ts);
@@ -1517,7 +1534,7 @@ function runStarDot(){
       if(webcam.readyState>=2&&faceLandmarker&&webcam.currentTime!==_lastVideoTime){
         _lastVideoTime=webcam.currentTime;
         try{
-          const res=faceLandmarker.detectForVideo(webcam,performance.now());
+          const res=faceLandmarker.detectForVideo(webcam,mpNow());
           if(res.faceLandmarks&&res.faceLandmarks.length>0){
             const lm=res.faceLandmarks[0];
             const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
@@ -1667,7 +1684,7 @@ function processingLoop(){
       if(_calibNowTs-_lastVT<33){procRaf=requestAnimationFrame(processingLoop);return;}
       _lastVT=_calibNowTs;
       try{
-        const res=faceLandmarker.detectForVideo(webcam,performance.now());
+        const res=faceLandmarker.detectForVideo(webcam,mpNow());
         const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
         calibFacePresent=hasFace;
 
@@ -1713,7 +1730,7 @@ function processingLoop(){
   if(webcam.readyState>=2&&faceLandmarker){
     if(webcam.currentTime===_lastVT){procRaf=requestAnimationFrame(processingLoop);return;}
     _lastVT=webcam.currentTime;
-    const res=faceLandmarker.detectForVideo(webcam,performance.now());
+    const res=faceLandmarker.detectForVideo(webcam,mpNow());
     const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
     const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
     calibFacePresent=hasFace;
