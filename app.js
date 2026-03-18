@@ -1858,9 +1858,6 @@ function processingLoop(){
             }
           }
         } else {
-          // No face — log once per second
-        console.warn('[Calib] No face detected — check camera/lighting');
-          
           const bridgeAge=performance.now()-_calibLastGazeTs;
           _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
         }
@@ -1868,9 +1865,7 @@ function processingLoop(){
         console.error('[Calib] detectForVideo error:',e);
       }
     } else {
-      // webcam not ready or no landmarker
-      console.warn(`[Calib] Waiting — webcam.readyState=${webcam.readyState faceLandmarker=${!!faceLandmarker}`);
-      }
+      // webcam not ready or no landmarker — silent, checked by preflight
     }
     procRaf=requestAnimationFrame(processingLoop);
     return;
