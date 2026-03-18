@@ -1555,13 +1555,17 @@ function drawStar(ctx,x,y,radius,twinklePhase,entranceProgress){
   }
 }
 
-// [FIX-9] valCanvas DPR set once per point, not stacking transforms
+// [FIX-9] set size and scale once, not accumulating per call
+let _valLastDetectTs = -1; // separate timestamp for validation detection
+
 function startValidation(){
   valPoints=[];
   const W=window.innerWidth,H=window.innerHeight;
   const safeVX=Math.max(80,W*.16),safeVY=Math.max(80,H*.16);
   valPoints=[{x:W/2,y:H/2},{x:safeVX,y:safeVY},{x:W-safeVX,y:H-safeVY}];
   valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
+  _lastVideoTime=-1;  // reset so first val frame isn't skipped
+  _valLastDetectTs=-1;
   prevGaze=null;prevGazeTime=null;
   const overlay=document.getElementById('val-overlay');
   if(overlay) overlay.style.display='block';
@@ -1625,8 +1629,9 @@ function runStarDot(){
     updateSparkles(vCtx);
     drawStar(vCtx,pt.x,pt.y,VAL_STAR_RADIUS,starElapsed*0.001,Math.min(entrance,1));
     if(starProgress>=VAL_SAMPLE_START&&gazeModel){
-      if(webcam.readyState>=2&&faceLandmarker&&webcam.currentTime!==_lastVideoTime){
-        _lastVideoTime=webcam.currentTime;
+      const nowTs=performance.now();
+      if(webcam.readyState>=2&&faceLandmarker&&nowTs-_valLastDetectTs>=33){
+        _valLastDetectTs=nowTs;
         try{
           const res=faceLandmarker.detectForVideo(webcam,mpNow());
           if(res.faceLandmarks&&res.faceLandmarks.length>0){
@@ -1635,10 +1640,13 @@ function runStarDot(){
             const feat=extractFeatures(lm,mat);
             if(feat[7]>=0.06){
               const pf=poly(feat);
-              collected.push({px:pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0),py:pf.reduce((s,v,i)=>s+v*gazeModel.wy[i],0)});
+              collected.push({
+                px:pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0),
+                py:pf.reduce((s,v,i)=>s+v*gazeModel.wy[i],0)
+              });
             }
           }
-        }catch(e){}
+        }catch(e){ console.warn('[Val] detect error:',e); }
       }
     }
     if(starProgress<1){valRaf=requestAnimationFrame(frame);}
@@ -1659,10 +1667,13 @@ function finishValidation(){
   cancelAnimationFrame(valRaf);
   const overlay=document.getElementById('val-overlay');
   if(overlay) overlay.style.display='none';
-  if(valSamples.length>=3){
+  if(valSamples.length>=2){
     affineBias=computeAffineCorrection(valSamples);
-    const badCalib=Math.abs(affineBias.dx)>300||affineBias.sx>1.4||affineBias.sx<0.7;
+    console.log(`[Val] samples=${valSamples.length} dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`);
+    // Only reject truly catastrophic calibrations — dx>500 or scale wildly off
+    const badCalib=Math.abs(affineBias.dx)>500||affineBias.sx>1.55||affineBias.sx<0.55;
     if(badCalib){
+      console.warn('[Val] Bad calibration detected, requesting retry');
       affineBias={dx:0,dy:0,sx:1,sy:1};
       calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
