@@ -1,29 +1,26 @@
 /**
- * GazeTrack v14 – Tablet‑Optimised (Child‑Proof Edition)
+ * GazeTrack v14 – Device‑Adaptive (Child‑Proof Edition)
  * =============================================================================
  * - Full SMI RED‑format CSV output with Fixation/Saccade/Blink classification
  * - Child‑friendly "balloon animal" calibration: gaze‑contingent, animated,
  *   sound‑paired, 5‑point grid (centre + four corners)
- * - FIX: null style error guarded
- * - NEW: confetti shower after every successfully collected calibration point
- * - NEW: dynamic gaze radius (larger at corners for easier child participation)
- * - NEW: "Skip calibration" button appears after one failed attempt
- * - NEW: child welfare monitor (blink rate, slow blinks, head movement, face‑off %)
- * - Tablet‑ready: touch events, responsive sizing, orientation handling,
- *   throttled MediaPipe, large touch targets.
+ * - NEW: dynamic gaze radius based on screen size (15‑25% of screen)
+ * - NEW: minimal confetti (30 particles) after each successful animal
+ * - FIX: null‑style errors guarded
+ * - FIX: skip timer now forces advancement even if child never looks
+ * - Tablet‑ready & laptop‑friendly: touch events, responsive sizing, orientation handling
  *
  * 🧸 CHILD‑PROOF ENHANCEMENTS:
- *   - Larger gaze radius (250‑350px, corner‑adaptive)
- *   - Force‑skip timer fixed (moves to next animal even if child doesn't look)
- *   - Blink forgiveness (200ms grace period before resetting hold)
+ *   - Gaze radius adapts to screen size (forgiving on any device)
+ *   - Force‑skip timer fixed (moves to next animal after 4 s even without look)
+ *   - Blink forgiveness (200ms grace before resetting hold)
  *   - Gap animation (pulsing ring)
  *   - Skip button appears after 1 failed attempt
  *   - Reduced calibration points (5 instead of 9)
  *   - Shortened validation (3 stars, shorter dwell)
- *   - Confetti celebration after each successful animal
  */
 
-console.log('%c GazeTrack v14 (Tablet - Child Proof)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v14 (Device‑Adaptive)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -36,7 +33,7 @@ const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent) || (wind
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const CALIB_DWELL_MS    = 2200;   // ms child must gaze at each animal before sample taken
-const CALIB_GAZE_RADIUS = 250;    // base radius; will be increased at corners
+// CALIB_GAZE_RADIUS is now dynamic (percentage of screen) – see runCalibLoop
 const CALIB_GAZE_HOLD   = 600;    // ms gaze must stay on target before sampling starts
 const CALIB_SAMPLE_MS   = 800;    // ms of samples collected per point
 const CALIB_TOTAL_PTS   = 5;      // 5-point grid (centre + four corners)
@@ -210,16 +207,16 @@ function playChime(freq, vol, duration) {
   o.start(); o.stop(a.currentTime + duration);
 }
 
-// 🎉 Confetti shower
+// 🎉 Minimal confetti shower
 function startConfetti() {
-  const confettiCount = 100;
+  const confettiCount = 30; // reduced from 100
   const colors = ['#f4a261', '#e9c46a', '#90e0ef', '#ffb3c1', '#c77dff', '#ff6b6b', '#4cc9f0'];
   for (let i = 0; i < confettiCount; i++) {
     setTimeout(() => {
       const conf = document.createElement('div');
       conf.className = 'confetti';
       conf.style.cssText = `
-        position: fixed; top: -10px; left: ${Math.random() * 100}vw; width: 10px; height: 10px;
+        position: fixed; top: -10px; left: ${Math.random() * 100}vw; width: 6px; height: 6px;
         background: ${colors[Math.floor(Math.random() * colors.length)]};
         border-radius: 50%; z-index: 9999; pointer-events: none;
         transform: rotate(${Math.random() * 360}deg);
@@ -905,11 +902,13 @@ function runCalibLoop() {
         const pt = calibPoints[calibIdx];
         const animal = ANIMALS[calibIdx % ANIMALS.length];
 
-        // 👀 Dynamic gaze radius based on distance from centre
+        // 👀 Dynamic gaze radius based on screen size and distance from centre
         const screenCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         const distFromCenter = Math.hypot(pt.x - screenCenter.x, pt.y - screenCenter.y);
         const maxDist = Math.hypot(window.innerWidth / 2, window.innerHeight / 2);
-        const actualGazeRadius = 250 + 100 * (distFromCenter / maxDist); // 250..350
+        const baseRadius = Math.min(window.innerWidth, window.innerHeight) * 0.15;   // 15% of smaller dimension
+        const maxRadius   = Math.min(window.innerWidth, window.innerHeight) * 0.25; // 25% at corners
+        const actualGazeRadius = baseRadius + (maxRadius - baseRadius) * (distFromCenter / maxDist);
 
         let gazeNear = false;
         if (_calibCurrentGaze) {
@@ -944,7 +943,7 @@ function runCalibLoop() {
             if (!_calibSparkled) {
               spawnCalibParticles(pt.x, pt.y);
               playSuccessChime();
-              // 🎉 Confetti on successful completion of this point
+              // 🎉 Minimal confetti on successful completion of this point
               startConfetti();
               _calibSparkled = true;
             }
