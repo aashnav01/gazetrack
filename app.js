@@ -800,17 +800,43 @@ function predictGaze(feat, model) {
   return {x:Math.max(0,Math.min(window.innerWidth,cx)),y:Math.max(0,Math.min(window.innerHeight,cy))};
 }
 
-// [FIX-1] estimateGazeFromIris: correct scaling so gaze reaches screen edges
+// ─── GAZE ESTIMATION FROM IRIS (pre-calibration) ────────────────────────────
+// Feature index reference (from extractFeatures):
+//   feat[0] = liX  — left iris horizontal offset within eye socket  (≈ ±0.15)
+//   feat[1] = riX  — right iris horizontal offset within eye socket (≈ ±0.15)
+//   feat[2] = vertMain — head pitch in degrees / 30                 (≈ ±0.3)
+//   feat[3] = fore.y   — forehead Y in normalised coords            (≈ 0.1–0.4)
+//   feat[4] = irisY    — iris Y relative to face centre / faceH     (≈ ±0.15)
+//   feat[5] = (li.y+ri.y)/2 — raw absolute iris Y (normalised 0–1) (≈ 0.3–0.7)
+//   feat[6] = (liX+riX)/2  — average horizontal iris offset         (≈ ±0.15)
+//   feat[7] = EAR  — eye aspect ratio (blink detector)
+//   feat[8] = IOD  — inter-ocular distance
+//
+// For the pre-calibration estimate we want the simplest possible mapping:
+//   X: feat[6] (avg horizontal offset) — scale ±0.15 → full screen width
+//   Y: feat[5] (raw iris absolute Y 0–1) — scale to screen height
+//      BUT iris Y when looking straight ≈ 0.35–0.45 (above face mid-line)
+//      so we bias and stretch to map that range to 0.1–0.9 of screen height
 function estimateGazeFromIris(feat) {
-  // feat[6] = avg iris horizontal offset ≈ ±0.15 max range
-  // multiply by 4.5 so full glance covers full screen width
-  const rawX = (feat[6] * 4.5 + 0.5) * window.innerWidth;
-  // feat[4] = vertical iris position in face ≈ 0.4–0.6 range
-  // remap to full screen height
-  const rawY = ((feat[4] - 0.5) * 5.0 + 0.5) * window.innerHeight;
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+
+  // Horizontal: avg iris offset ≈ ±0.15 → scale to fill screen
+  // Negative offset = looking right (mirrored), positive = looking left
+  // Multiply by -6 to flip mirror and amplify, then centre on 0.5
+  const rawX = (-feat[6] * 6.0 + 0.5) * W;
+
+  // Vertical: raw iris absolute Y (feat[5]) in normalised 0–1 space
+  // Typical range when looking at screen: ~0.30 (top) to ~0.55 (bottom)
+  // Remap: (val - 0.30) / (0.55 - 0.30) → 0..1, then scale to screen
+  const irisAbsY = feat[5];
+  const IRIS_TOP    = 0.28;   // iris Y when looking at top of screen
+  const IRIS_BOTTOM = 0.52;   // iris Y when looking at bottom of screen
+  const rawY = ((irisAbsY - IRIS_TOP) / (IRIS_BOTTOM - IRIS_TOP)) * H;
+
   return {
-    x: Math.max(0, Math.min(window.innerWidth,  rawX)),
-    y: Math.max(0, Math.min(window.innerHeight, rawY))
+    x: Math.max(0, Math.min(W, rawX)),
+    y: Math.max(0, Math.min(H, rawY)),
   };
 }
 
@@ -933,17 +959,18 @@ function updateDebugOverlay(gaze, feat, activeIdx, pts) {
   const hud = document.getElementById('calib-debug-hud');
   if (hud) {
     if (feat) {
-      const ear  = feat[7].toFixed(3);
-      const ih   = feat[6].toFixed(3);
-      const iv   = feat[4].toFixed(3);
-      const gx   = gaze ? gaze.x.toFixed(0) : '---';
-      const gy   = gaze ? gaze.y.toFixed(0) : '---';
-      const pt   = pts && pts[activeIdx];
-      const dist = (gaze && pt) ? Math.hypot(gaze.x-pt.x, gaze.y-pt.y).toFixed(0) : '---';
-      const rad  = pt ? getCalibGazeRadius(pt).toFixed(0) : '---';
-      const near = (gaze && pt && Math.hypot(gaze.x-pt.x,gaze.y-pt.y)<getCalibGazeRadius(pt));
+      const ear   = feat[7].toFixed(3);
+      const ih    = feat[6].toFixed(3);   // avg horizontal iris offset
+      const iAbsY = feat[5].toFixed(3);   // raw iris absolute Y (KEY for vertical)
+      const iRelY = feat[4].toFixed(3);   // iris Y relative to face centre
+      const gx    = gaze ? gaze.x.toFixed(0) : '---';
+      const gy    = gaze ? gaze.y.toFixed(0) : '---';
+      const pt    = pts && pts[activeIdx];
+      const dist  = (gaze && pt) ? Math.hypot(gaze.x-pt.x, gaze.y-pt.y).toFixed(0) : '---';
+      const rad   = pt ? getCalibGazeRadius(pt).toFixed(0) : '---';
+      const near  = (gaze && pt && Math.hypot(gaze.x-pt.x,gaze.y-pt.y)<getCalibGazeRadius(pt));
       hud.style.color = near ? '#0f0' : '#0ff';
-      hud.textContent = `EAR:${ear}  iris_h:${ih}  iris_v:${iv}  gaze:(${gx},${gy})  dist:${dist}  radius:${rad}  ${near?'✅ IN ZONE':'❌ OUT'}`;
+      hud.textContent = `EAR:${ear}  iris_h:${ih}  irisY_abs:${iAbsY}  irisY_rel:${iRelY}  gaze:(${gx},${gy})  dist:${dist}  r:${rad}  ${near?'✅ IN':'❌ OUT'}`;
     } else {
       hud.style.color = '#f80';
       hud.textContent = '⚠ No face detected — move closer or check lighting';
