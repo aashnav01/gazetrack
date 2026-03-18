@@ -822,16 +822,13 @@ function estimateGazeFromIris(feat) {
   const H = window.innerHeight;
 
   // Horizontal: avg iris offset ≈ ±0.15 → scale to fill screen
-  // Negative offset = looking right (mirrored), positive = looking left
-  // Multiply by -6 to flip mirror and amplify, then centre on 0.5
   const rawX = (-feat[6] * 6.0 + 0.5) * W;
 
   // Vertical: raw iris absolute Y (feat[5]) in normalised 0–1 space
-  // Typical range when looking at screen: ~0.30 (top) to ~0.55 (bottom)
-  // Remap: (val - 0.30) / (0.55 - 0.30) → 0..1, then scale to screen
-  const irisAbsY = feat[5];
-  const IRIS_TOP    = 0.28;   // iris Y when looking at top of screen
-  const IRIS_BOTTOM = 0.52;   // iris Y when looking at bottom of screen
+  // Extended range — bottom corners require looking further down
+  const irisAbsY    = feat[5];
+  const IRIS_TOP    = 0.30;   // iris Y when looking at top of screen
+  const IRIS_BOTTOM = 0.62;   // iris Y when looking at bottom (extended from 0.52)
   const rawY = ((irisAbsY - IRIS_TOP) / (IRIS_BOTTOM - IRIS_TOP)) * H;
 
   return {
@@ -866,14 +863,16 @@ const CREATURE_DEFS = [
 ];
 
 function buildCalibPoints() {
-  const W=window.innerWidth,H=window.innerHeight;
-  const px=Math.max(100,W*0.15),py=Math.max(90,H*0.16);
+  const W=window.innerWidth, H=window.innerHeight;
+  const px=Math.max(100, W*0.15);
+  const pyTop=Math.max(90,  H*0.16);   // top corners
+  const pyBot=Math.max(90,  H*0.78);   // bottom corners — was H-pyTop ≈ 84%, now 78%
   return [
-    {x:W/2,   y:H/2,   isCorner:false},
-    {x:px,    y:py,    isCorner:true},
-    {x:W-px,  y:py,    isCorner:true},
-    {x:W-px,  y:H-py,  isCorner:true},
-    {x:px,    y:H-py,  isCorner:true},
+    {x:W/2,   y:H/2,    isCorner:false},
+    {x:px,    y:pyTop,  isCorner:true},
+    {x:W-px,  y:pyTop,  isCorner:true},
+    {x:W-px,  y:pyBot,  isCorner:true},
+    {x:px,    y:pyBot,  isCorner:true},
   ];
 }
 
@@ -886,7 +885,9 @@ function buildCalibPoints() {
 function getCalibGazeRadius(pt) {
   const diag = Math.hypot(window.innerWidth, window.innerHeight);
   const base  = diag * CALIB_DIAG_FRACTION;
-  const mult  = pt.isCorner ? CALIB_CORNER_BONUS : 1.4;
+  // Bottom corners (y > 50% screen) get extra radius — hardest for iris to reach
+  const isBottomCorner = pt.isCorner && (pt.y > window.innerHeight * 0.5);
+  const mult  = isBottomCorner ? 2.8 : (pt.isCorner ? 2.2 : 1.4);
   const maxR  = Math.min(window.innerWidth, window.innerHeight) * 0.49;
   return Math.min(maxR, Math.max(200, base * mult));
 }
@@ -1266,14 +1267,17 @@ function advanceCalibPoint() {
     const cr = creatureEls[calibIdx];
     if (cr) setCalibBanner(`👀 Look at ${cr.def.name}! The red dot should move toward them!`);
 
-    // Force-skip after 12s so it never gets permanently stuck
+    // Force-skip — bottom corners get extra time (18s), others 12s
+    const pt = calibPoints[calibIdx];
+    const isBottomCorner = pt && pt.isCorner && (pt.y > window.innerHeight * 0.5);
+    const skipMs = isBottomCorner ? 18000 : CALIB_FORCE_SKIP_MS;
     _calibSkipTimer = setTimeout(() => {
       if (calibState !== 'done-pt') {
         console.warn(`[GazeTrack] Force-skipping point ${calibIdx} after timeout`);
         calibIdx++;
         advanceCalibPoint();
       }
-    }, CALIB_FORCE_SKIP_MS);
+    }, skipMs);
   }, CALIB_GAP_MS);
 }
 
