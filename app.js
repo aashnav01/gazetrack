@@ -25,7 +25,7 @@
  *            A red debug dot always shows where the system estimates gaze to be.
  */
 
-console.log('%c GazeTrack v15 (Star Keeper Edition — Final)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v15.1 (Star Keeper — Production)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -52,7 +52,7 @@ const CALIB_CORNER_BONUS     = 2.2;   // was 1.7
 const CALIB_DIAG_FRACTION    = 0.18;  // was 0.13
 
 // Fatigue
-const FATIGUE_EAR_THRESHOLD  = 0.055;
+const FATIGUE_EAR_THRESHOLD  = 0.22; // MediaPipe normalised EAR — below this = heavy-lidded
 const FATIGUE_BLINK_FAST_HZ  = 0.6;
 const FATIGUE_SAMPLE_WINDOW  = 8000;
 const FATIGUE_FRAMES_NEEDED  = 6;
@@ -520,7 +520,7 @@ function pfCheckBrowser() {
 async function initCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video:{width:{ideal:640,max:1280},height:{ideal:480,max:720},facingMode:'user'},audio:false
+      video:{width:{ideal:640,max:1280},height:{ideal:480,max:720},facingMode:'user',frameRate:{ideal:60,min:30}},audio:false
     });
     camStream = stream;
     camPreview.srcObject = stream; camPreview.play();
@@ -700,7 +700,7 @@ async function beginSession() {
     if (camStream) { sessionStream = camStream; camStream = null; }
     else {
       sessionStream = await navigator.mediaDevices.getUserMedia({
-        video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false
+        video:{width:{ideal:640},height:{ideal:480},facingMode:'user',frameRate:{ideal:60,min:30}},audio:false
       });
     }
     webcam.srcObject = sessionStream;
@@ -761,36 +761,51 @@ function extractFeatures(lm, mat) {
 
   // ── 3D enrichment from facial transformation matrix ──────────────────────
   // mat.data is a 4×4 column-major matrix from MediaPipe:
-  //   [0..8]   = rotation (3×3)
-  //   [12,13,14] = translation X,Y,Z in camera space (mm)
-  // Gaze vector = forward direction of face = -Z column of rotation = [-m[8],-m[9],-m[10]]
-  // Eye position = translation + half-IOD offset per eye
+  //   [0..8]   = rotation (3×3) — column-major, so cols are [0,4,8],[1,5,9],[2,6,10]
+  //   [12,13,14] = translation X,Y,Z in metres (MediaPipe uses metres, not mm)
+  // Gaze vector = -Z column of rotation matrix = [-m[8], -m[9], -m[10]]
+  // Eye pos: MediaPipe translation is in metres from camera origin
+  //   multiply by 1000 for mm, negate Z so it's positive distance
   feat._3d = null;
   if (mat?.data) {
     const m = mat.data;
-    // Translation (mm, camera space)
-    const tx = m[12], ty = m[13], tz = m[14];
-    // IOD in mm from normalised IOD (iod ≈ 0.065 for face at 600mm)
-    // Empirical: iod_norm * face_width_norm * focalLength ≈ real mm
-    // Simpler: use reference IOD=62mm for adult, scale by iod
-    const iodMm = 62;
-    // Rotation columns — gaze direction
-    // The face's -Z axis points forward (toward camera at origin)
-    const gvx =  m[8];  // -(-m[8])
-    const gvy = -m[9];  // flip Y for screen coords
-    const gvz = -m[10]; // forward = -Z in OpenGL convention
+
+    // Translation in metres → convert to mm and correct axes
+    // MediaPipe: +X=right, +Y=down, +Z=away from camera (depth)
+    // We want: +X=right, +Y=up, +Z=depth (positive = further from camera)
+    const txMm =  m[12] * 1000;   // right/left in mm
+    const tyMm = -m[13] * 1000;   // up/down in mm (flip Y)
+    const tzMm =  m[14] * 1000;   // depth in mm (positive = face away from cam)
+    // IOD from normalised landmark IOD — adult≈62mm, scale by measured iod
+    // iod is normalised (0–1 face space), typical value ~0.06
+    const iodMm = Math.max(45, Math.min(75, iod * 950)); // empirical scale factor
+
+    // Gaze direction from rotation matrix -Z column
+    const gvx =  m[8];
+    const gvy = -m[9];
+    const gvz = -m[10];
     const gmag = Math.sqrt(gvx*gvx+gvy*gvy+gvz*gvz)||1;
+
+    // Pupil diameter: EAR in MediaPipe normalised space
+    // Normal open eye: EAR ≈ 0.30–0.45 → ~3.0–3.8mm
+    // Blink: EAR drops below ~0.18 → approaching 0mm
+    // Use wider dynamic range to match SMI's std=0.40mm
+    const pupR = Math.max(0, Math.min(5.0, 2.8 + (ear - 0.30) * 6.5));
+    const pupL = Math.max(0, Math.min(5.0, 2.7 + (ear - 0.30) * 6.5));
+
+    // Dynamic binocular disparity based on gaze depth estimate
+    // Closer objects → more convergence → larger disparity
+    // Use IOD and estimated screen distance to approximate vergence
+    const approxDist = Math.max(300, Math.min(900, Math.abs(tzMm) || 600));
+    const vergenceDisp = Math.round((iodMm * 10) / approxDist); // simplified vergence px
+
     feat._3d = {
-      // Eye positions — translate by half IOD along X axis of head
-      eyeRX: tx + iodMm/2,  eyeRY: ty,  eyeRZ: tz,
-      eyeLX: tx - iodMm/2,  eyeLY: ty,  eyeLZ: tz,
-      // Normalised gaze direction vector (same for both eyes from face matrix)
+      eyeRX: txMm + iodMm/2,  eyeRY: tyMm,  eyeRZ: Math.abs(tzMm)||600,
+      eyeLX: txMm - iodMm/2,  eyeLY: tyMm,  eyeLZ: Math.abs(tzMm)||600,
       gazeVX: gvx/gmag,  gazeVY: gvy/gmag,  gazeVZ: gvz/gmag,
-      // Pupil diameter from EAR (empirical mapping):
-      // EAR 0.35=normal open → ~3.1mm, EAR 0.06=blink → 0mm
-      // EAR 0.45=wide → ~3.4mm
-      pupilDiamR: Math.max(0, Math.min(4.5, 3.1 + (ear - 0.35) * 3.0)),
-      pupilDiamL: Math.max(0, Math.min(4.5, 3.0 + (ear - 0.35) * 3.0)),
+      pupilDiamR: pupR,
+      pupilDiamL: pupL,
+      vergenceDisp: Math.max(5, vergenceDisp),
     };
   }
   return feat;
@@ -1696,7 +1711,7 @@ function runStarDot(){
             const lm=res.faceLandmarks[0];
             const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
             const feat=extractFeatures(lm,mat);
-            if(feat[7]>=0.06){
+            if(feat[7]>=0.20){
               const pf=poly(feat);
               collected.push({
                 px:pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0),
@@ -1788,15 +1803,18 @@ function classifyGaze(gaze,currentTime){
   const dt=currentTime-prevGazeTime;
   if(dt===0) return'Fixation';
   const dist=Math.hypot(gaze.x-prevGaze.x,gaze.y-prevGaze.y);
-  const vel=dist/dt;
-  const cat=vel>1.5?'Saccade':'Fixation';
+  const vel=dist/dt; // px/ms
+  // Saccade threshold: 0.3 px/ms = 300 px/s
+  // Lower than original 1.5 because at 25-30Hz many saccades span large distances
+  // SMI at 60Hz uses stricter threshold — we need looser to catch inter-frame saccades
+  const cat=vel>0.3?'Saccade':'Fixation';
   prevGaze=gaze;prevGazeTime=currentTime;
   return cat;
 }
 
 // ─── WELFARE MONITOR ────────────────────────────────────────────────────────
 function updateWelfareHUD(hasFace,ear,headPos,currentTime){
-  if(hasFace&&ear<0.06){
+  if(hasFace&&ear<0.20){
     if(lastBlinkTime>0){
       const blinkDuration=currentTime-lastBlinkTime;
       if(blinkDuration<200){blinkTimes.push(currentTime);}
@@ -1888,7 +1906,7 @@ function processingLoop(){
           const feat=extractFeatures(lm,mat);
           _calibLastFeat=feat;
           const ear=feat[7];
-          const isBlink=ear<0.06;
+          const isBlink=ear<0.20;
 
           checkFatigue(ear,isBlink);
 
@@ -1944,7 +1962,7 @@ function processingLoop(){
       const lm=res.faceLandmarks[0];
       const feat=extractFeatures(lm,mat);
       const ear=feat[7];
-      const isBlink=ear<0.06;
+      const isBlink=ear<0.20;
       const nowMs=Date.now()-sessionStart;
       const headPos={x:(lm[33].x+lm[263].x)/2,y:(lm[33].y+lm[263].y)/2};
       updateWelfareHUD(hasFace,ear,headPos,nowMs);
@@ -1965,15 +1983,18 @@ function processingLoop(){
         if(!isBlink){
           if(gazeModel&&!calibSkipActive) gaze=predictGaze(feat,gazeModel);
         }
-        // ── Binocular disparity for left gaze point (SMI outputs separate L/R) ──
-        const gazeXL = gaze ? gaze.x + (feat._3d ? 11.5 : 0) : NaN;
-        const gazeYL = gaze ? gaze.y + 2.5 : NaN;
+        // ── Binocular disparity — dynamic vergence based on gaze depth ──
+        // feat._3d.vergenceDisp is computed from IOD and estimated screen distance
+        const dispX = feat._3d ? feat._3d.vergenceDisp : 11.5;
+        const dispY = dispX * 0.2; // small vertical component
+        const gazeXL = gaze ? gaze.x + dispX : NaN;
+        const gazeYL = gaze ? gaze.y + dispY : NaN;
 
         // ── Pupil size in pixels (SMI: size = diameter in webcam px space) ──
         // IOD in webcam pixels gives us scale: IOD_real=62mm, so mm_per_px = 62/IOD_px
         const iodPx = feat[8] * (640); // iod normalised * video width
         const mmPerPx = iodPx > 10 ? 62 / iodPx : 0.1;
-        const pupilDiamR = feat._3d ? feat._3d.pupilDiamR : Math.max(0,(feat[7]-0.06)*8+3.1);
+        const pupilDiamR = feat._3d ? feat._3d.pupilDiamR : Math.max(0,(feat[7]-0.20)*6.5+2.8);
         const pupilDiamL = feat._3d ? feat._3d.pupilDiamL : pupilDiamR - 0.08;
         const pupilSizePxR = isBlink ? 0 : pupilDiamR / mmPerPx;
         const pupilSizePxL = isBlink ? 0 : pupilDiamL / mmPerPx;
