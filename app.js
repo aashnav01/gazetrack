@@ -801,35 +801,42 @@ function predictGaze(feat, model) {
 }
 
 // ─── GAZE ESTIMATION FROM IRIS (pre-calibration) ────────────────────────────
-// Feature index reference (from extractFeatures):
-//   feat[0] = liX  — left iris horizontal offset within eye socket  (≈ ±0.15)
-//   feat[1] = riX  — right iris horizontal offset within eye socket (≈ ±0.15)
-//   feat[2] = vertMain — head pitch in degrees / 30                 (≈ ±0.3)
-//   feat[3] = fore.y   — forehead Y in normalised coords            (≈ 0.1–0.4)
-//   feat[4] = irisY    — iris Y relative to face centre / faceH     (≈ ±0.15)
-//   feat[5] = (li.y+ri.y)/2 — raw absolute iris Y (normalised 0–1) (≈ 0.3–0.7)
-//   feat[6] = (liX+riX)/2  — average horizontal iris offset         (≈ ±0.15)
-//   feat[7] = EAR  — eye aspect ratio (blink detector)
-//   feat[8] = IOD  — inter-ocular distance
+// What the logs show:
+//   irisY_abs (feat[5]) only spans 0.341→0.382 = 0.04 units across full session
+//   → completely useless for vertical mapping
+//   iris_h (feat[6]) spans -0.081→+0.062 → good horizontal signal
+//   feat[2] = head pitch (degrees/30) → moves when you look up/down → use for Y
+//   feat[3] = fore.y (forehead absolute Y, 0–1) → also tracks head tilt
 //
-// For the pre-calibration estimate we want the simplest possible mapping:
-//   X: feat[6] (avg horizontal offset) — scale ±0.15 → full screen width
-//   Y: feat[5] (raw iris absolute Y 0–1) — scale to screen height
-//      BUT iris Y when looking straight ≈ 0.35–0.45 (above face mid-line)
-//      so we bias and stretch to map that range to 0.1–0.9 of screen height
+// Strategy:
+//   X: feat[6] (iris horizontal offset) — already working well
+//   Y: feat[2] (head pitch) + feat[3] (forehead Y) combined
 function estimateGazeFromIris(feat) {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
-  // Horizontal: avg iris offset ≈ ±0.15 → scale to fill screen
+  // Horizontal — working correctly, keep as-is
   const rawX = (-feat[6] * 6.0 + 0.5) * W;
 
-  // Vertical: raw iris absolute Y (feat[5]) in normalised 0–1 space
-  // Extended range — bottom corners require looking further down
-  const irisAbsY    = feat[5];
-  const IRIS_TOP    = 0.30;   // iris Y when looking at top of screen
-  const IRIS_BOTTOM = 0.62;   // iris Y when looking at bottom (extended from 0.52)
-  const rawY = ((irisAbsY - IRIS_TOP) / (IRIS_BOTTOM - IRIS_TOP)) * H;
+  // Vertical — use head pitch (feat[2]) combined with forehead Y (feat[3])
+  // feat[2] = pitchDeg/30: negative = looking up, positive = looking down
+  //           typical range: -0.3 (top of screen) to +0.3 (bottom of screen)
+  // feat[3] = fore.y: forehead in normalised 0–1 space
+  //           typical range: ~0.10 (looking down) to ~0.35 (looking up)
+  //
+  // Combine both signals: pitch is more reliable, forehead Y adds stability
+  const pitch   = feat[2];   // ≈ -0.3 to +0.3
+  const foreY   = feat[3];   // ≈ 0.10 to 0.35
+
+  // Remap pitch: -0.25 → top of screen, +0.25 → bottom
+  const pitchY  = (-pitch / 0.25 + 1) * 0.5; // → 0 (top) to 1 (bottom)
+
+  // Remap foreY: 0.35 → top, 0.10 → bottom (inverted)
+  const foreNorm = 1 - ((foreY - 0.10) / (0.35 - 0.10)); // → 0 (top) to 1 (bottom)
+
+  // Blend: 70% pitch, 30% forehead (pitch has more vertical range)
+  const blended = pitchY * 0.7 + foreNorm * 0.3;
+  const rawY    = blended * H;
 
   return {
     x: Math.max(0, Math.min(W, rawX)),
@@ -1787,7 +1794,7 @@ function processingLoop(){
               const dist=pt?Math.hypot(rawGaze.x-pt.x,rawGaze.y-pt.y).toFixed(0):'?';
               const rad=pt?getCalibGazeRadius(pt).toFixed(0):'?';
               const near=pt&&Math.hypot(rawGaze.x-pt.x,rawGaze.y-pt.y)<getCalibGazeRadius(pt);
-              console.log(`[Calib pt${calibIdx}] gaze=(${rawGaze.x.toFixed(0)},${rawGaze.y.toFixed(0)}) target=(${pt?pt.x.toFixed(0):'?'},${pt?pt.y.toFixed(0):'?'}) dist=${dist} radius=${rad} ${near?'✅IN':'❌OUT'} iris_h=${feat[6].toFixed(3)} irisY_abs=${feat[5].toFixed(3)} EAR=${feat[7].toFixed(3)} state=${calibState} dwell=${_calibDwellAccum.toFixed(0)}ms`);
+              console.log(`[Calib pt${calibIdx}] gaze=(${rawGaze.x.toFixed(0)},${rawGaze.y.toFixed(0)}) target=(${pt?pt.x.toFixed(0):'?'},${pt?pt.y.toFixed(0):'?'}) dist=${dist} radius=${rad} ${near?'✅IN':'❌OUT'} iris_h=${feat[6].toFixed(3)} pitch=${feat[2].toFixed(3)} foreY=${feat[3].toFixed(3)} EAR=${feat[7].toFixed(3)} state=${calibState} dwell=${_calibDwellAccum.toFixed(0)}ms`);
             }
           } else {
             const bridgeAge=performance.now()-_calibLastGazeTs;
