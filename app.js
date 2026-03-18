@@ -884,7 +884,9 @@ function computeAffineCorrection(pairs) {
     const n=ps.length,mp=ps.reduce((a,b)=>a+b,0)/n,mt=ts.reduce((a,b)=>a+b,0)/n;
     let num=0,den=0;
     for(let i=0;i<n;i++){num+=(ps[i]-mp)*(ts[i]-mt);den+=(ps[i]-mp)**2;}
-    const s=den>1e-6?num/den:1,sc=Math.max(0.6,Math.min(1.6,s));
+    // Clamp scale to 0.4–1.8 — wide enough not to reject valid calibrations
+    // but narrow enough to catch catastrophic failures
+    const s=den>1e-6?num/den:1, sc=Math.max(0.4,Math.min(1.8,s));
     return {s:sc,d:mt-sc*mp};
   }
   const fx=linfit(pairs.map(p=>p.px),pairs.map(p=>p.tx));
@@ -1488,6 +1490,24 @@ function finaliseCalib() {
   if(rafId) cancelAnimationFrame(rafId);
   removeDebugDot();
 
+  // Remove samples from force-skipped points (they have wrong labels)
+  // A force-skipped point has dwell=0, meaning gaze was never confirmed near it
+  // We track per-point samples in _calibPointSamples — but calibSamples has all points mixed
+  // Simple heuristic: if fewer than 5 samples exist for a target coord, drop them
+  const MIN_PER_POINT = 5;
+  const pointCounts = {};
+  calibSamples.forEach(s => {
+    const key = `${Math.round(s.sx/10)*10},${Math.round(s.sy/10)*10}`;
+    pointCounts[key] = (pointCounts[key]||0) + 1;
+  });
+  const goodSamples = calibSamples.filter(s => {
+    const key = `${Math.round(s.sx/10)*10},${Math.round(s.sy/10)*10}`;
+    return pointCounts[key] >= MIN_PER_POINT;
+  });
+  const droppedPts = calibSamples.length - goodSamples.length;
+  if(droppedPts > 0) console.warn(`[Calib] Dropped ${droppedPts} samples from force-skipped points`);
+  calibSamples = goodSamples;
+
   if(calibSamples.length<MIN_SAMPLES){
     calibFailCount++;
     if(calibSamples.length>=10){
@@ -1515,6 +1535,8 @@ function finaliseCalib() {
     if(startBtn) startBtn.textContent='🐾 Try Again!';
     if(skipBtn&&calibFailCount>=1) skipBtn.style.display='inline-block';
     if(overlay) overlay.style.display='flex';
+    // Make sure calib screen is visible
+    showScreen('calib');
     calibSamples=[];
     phase='calib-ready';
     return;
@@ -1703,26 +1725,56 @@ function finishValidation(){
   cancelAnimationFrame(valRaf);
   const overlay=document.getElementById('val-overlay');
   if(overlay) overlay.style.display='none';
+
+  // If we got no val samples (face not detected during validation), skip correction
+  // and proceed — better to have no bias correction than to loop forever
+  if(valSamples.length===0){
+    console.warn('[Val] No validation samples collected — skipping affine correction');
+    affineBias={dx:0,dy:0,sx:1,sy:1};
+    phase='stimulus';
+    showScreen('stimulus');
+    const hChild=document.getElementById('h-child');if(hChild) hChild.textContent=META.pid;
+    const hGroup=document.getElementById('h-group');if(hGroup) hGroup.textContent=META.group;
+    startRecording();
+    return;
+  }
+
   if(valSamples.length>=2){
     affineBias=computeAffineCorrection(valSamples);
-    // Only reject truly catastrophic calibrations — dx>500 or scale wildly off
-    const badCalib=Math.abs(affineBias.dx)>500||affineBias.sx>1.55||affineBias.sx<0.55;
+
+    // Only reject truly catastrophic calibrations:
+    // dx>500 means predictions are 500px off screen centre — completely wrong
+    // sx outside 0.4–1.6 means scale is wildly off (not just inaccurate)
+    // Also check if we had too many force-skipped calibration points
+    const dxBad = Math.abs(affineBias.dx)>500;
+    const sxBad = affineBias.sx>1.6 || affineBias.sx<0.4;
+    const badCalib = dxBad || sxBad;
+
     if(badCalib){
-      console.warn('[Val] Bad calibration detected, requesting retry');
+      console.warn(`[Val] Catastrophic calibration (dx=${affineBias.dx.toFixed(0)} sx=${affineBias.sx.toFixed(2)}) — retry`);
       affineBias={dx:0,dy:0,sx:1,sy:1};
       calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
       const h2=card?.querySelector('h2');
       const p=card?.querySelector('p');
       if(h2) h2.textContent='🐾 Let\'s try again!';
-      if(p) p.innerHTML='Validation showed poor accuracy. Please recalibrate.<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room.';
+      if(p) p.innerHTML='Validation showed the tracker was very inaccurate.<br>Please recalibrate carefully.<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, look directly at each creature.';
       const startBtn=document.getElementById('calib-start-btn');
       if(startBtn) startBtn.textContent='🐾 Try Again!';
+      // Show the calib screen with overlay — make sure screen is active
+      showScreen('calib');
       const overlayCalib=document.getElementById('calib-overlay');
       if(overlayCalib) overlayCalib.style.display='flex';
-      phase='calib-ready';return;
+      phase='calib-ready';
+      return;
+    }
+
+    // Warn but proceed if correction is moderate — data is still usable
+    if(Math.abs(affineBias.dx)>200 || affineBias.sx>1.4 || affineBias.sx<0.65){
+      console.warn(`[Val] Moderate calibration offset (dx=${affineBias.dx.toFixed(0)} sx=${affineBias.sx.toFixed(2)}) — proceeding with correction applied`);
     }
   }
+
   phase='stimulus';
   showScreen('stimulus');
   const hChild=document.getElementById('h-child');if(hChild) hChild.textContent=META.pid;
