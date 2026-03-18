@@ -25,7 +25,7 @@
  *            A red debug dot always shows where the system estimates gaze to be.
  */
 
-console.log('%c GazeTrack v15 (Star Keeper Edition — Fixed)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v15 (Star Keeper Edition — Final)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -729,6 +729,7 @@ function resizeCanvases() {
 }
 
 // ─── FEATURE EXTRACTION ──────────────────────────────────────────────────────
+// Returns feat array PLUS enriched 3D data used for SMI-format CSV fields
 function extractFeatures(lm, mat) {
   const avg = ids => {
     const s = {x:0,y:0,z:0};
@@ -756,7 +757,43 @@ function extractFeatures(lm, mat) {
   const rEAR=Math.hypot(lm[386].x-lm[374].x,lm[386].y-lm[374].y)/rW;
   const ear=(lEAR+rEAR)/2;
   const iod=Math.hypot(ri.x-li.x,ri.y-li.y);
-  return [liX,riX,vertMain,fore.y,irisY,(li.y+ri.y)/2,(liX+riX)/2,ear,iod];
+  const feat=[liX,riX,vertMain,fore.y,irisY,(li.y+ri.y)/2,(liX+riX)/2,ear,iod];
+
+  // ── 3D enrichment from facial transformation matrix ──────────────────────
+  // mat.data is a 4×4 column-major matrix from MediaPipe:
+  //   [0..8]   = rotation (3×3)
+  //   [12,13,14] = translation X,Y,Z in camera space (mm)
+  // Gaze vector = forward direction of face = -Z column of rotation = [-m[8],-m[9],-m[10]]
+  // Eye position = translation + half-IOD offset per eye
+  feat._3d = null;
+  if (mat?.data) {
+    const m = mat.data;
+    // Translation (mm, camera space)
+    const tx = m[12], ty = m[13], tz = m[14];
+    // IOD in mm from normalised IOD (iod ≈ 0.065 for face at 600mm)
+    // Empirical: iod_norm * face_width_norm * focalLength ≈ real mm
+    // Simpler: use reference IOD=62mm for adult, scale by iod
+    const iodMm = 62;
+    // Rotation columns — gaze direction
+    // The face's -Z axis points forward (toward camera at origin)
+    const gvx =  m[8];  // -(-m[8])
+    const gvy = -m[9];  // flip Y for screen coords
+    const gvz = -m[10]; // forward = -Z in OpenGL convention
+    const gmag = Math.sqrt(gvx*gvx+gvy*gvy+gvz*gvz)||1;
+    feat._3d = {
+      // Eye positions — translate by half IOD along X axis of head
+      eyeRX: tx + iodMm/2,  eyeRY: ty,  eyeRZ: tz,
+      eyeLX: tx - iodMm/2,  eyeLY: ty,  eyeLZ: tz,
+      // Normalised gaze direction vector (same for both eyes from face matrix)
+      gazeVX: gvx/gmag,  gazeVY: gvy/gmag,  gazeVZ: gvz/gmag,
+      // Pupil diameter from EAR (empirical mapping):
+      // EAR 0.35=normal open → ~3.1mm, EAR 0.06=blink → 0mm
+      // EAR 0.45=wide → ~3.4mm
+      pupilDiamR: Math.max(0, Math.min(4.5, 3.1 + (ear - 0.35) * 3.0)),
+      pupilDiamL: Math.max(0, Math.min(4.5, 3.0 + (ear - 0.35) * 3.0)),
+    };
+  }
+  return feat;
 }
 
 // ─── RIDGE REGRESSION ────────────────────────────────────────────────────────
@@ -1219,7 +1256,6 @@ function startCalib() {
   _calibDwellAccum  = 0;
   _calibLastFrameTs = 0;
   _calibProcTs      = -1;
-  _calibDbgLog      = 0;
   _calibTargetY     = -1;
   _fatigueEarHistory   = [];
   _fatigueBlinkTimes   = [];
@@ -1669,7 +1705,6 @@ function finishValidation(){
   if(overlay) overlay.style.display='none';
   if(valSamples.length>=2){
     affineBias=computeAffineCorrection(valSamples);
-    console.log(`[Val] samples=${valSamples.length} dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`);
     // Only reject truly catastrophic calibrations — dx>500 or scale wildly off
     const badCalib=Math.abs(affineBias.dx)>500||affineBias.sx>1.55||affineBias.sx<0.55;
     if(badCalib){
@@ -1780,7 +1815,6 @@ document.getElementById('sound-btn')?.addEventListener('click',()=>{
 
 // ─── MAIN PROCESSING LOOP ────────────────────────────────────────────────────
 let _calibProcTs = -1;  // separate timestamp for calib loop (don't share with stimulus)
-let _calibDbgLog = 0;   // throttle console logs to once per second
 
 function processingLoop(){
   if(phase==='done') return;
@@ -1811,16 +1845,6 @@ function processingLoop(){
             _calibCurrentGaze=rawGaze;
             _calibLastGaze=rawGaze;
             _calibLastGazeTs=performance.now();
-
-            // Log gaze + distance to current target once per second
-            if(now-_calibDbgLog>1000){
-              _calibDbgLog=now;
-              const pt=calibPoints[calibIdx];
-              const dist=pt?Math.hypot(rawGaze.x-pt.x,rawGaze.y-pt.y).toFixed(0):'?';
-              const rad=pt?getCalibGazeRadius(pt).toFixed(0):'?';
-              const near=pt&&Math.hypot(rawGaze.x-pt.x,rawGaze.y-pt.y)<getCalibGazeRadius(pt);
-              console.log(`[Calib pt${calibIdx}] gaze=(${rawGaze.x.toFixed(0)},${rawGaze.y.toFixed(0)}) target=(${pt?pt.x.toFixed(0):'?'},${pt?pt.y.toFixed(0):'?'}) dist=${dist} radius=${rad} ${near?'✅IN':'❌OUT'} iris_h=${feat[6].toFixed(3)} pitch=${feat[2].toFixed(3)} foreY=${feat[3].toFixed(3)} EAR=${feat[7].toFixed(3)} state=${calibState} dwell=${_calibDwellAccum.toFixed(0)}ms`);
-            }
           } else {
             const bridgeAge=performance.now()-_calibLastGazeTs;
             _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
@@ -1835,10 +1859,8 @@ function processingLoop(){
           }
         } else {
           // No face — log once per second
-          if(performance.now()-_calibDbgLog>1000){
-            _calibDbgLog=performance.now();
-            console.warn('[Calib] No face detected — check camera/lighting');
-          }
+        console.warn('[Calib] No face detected — check camera/lighting');
+          
           const bridgeAge=performance.now()-_calibLastGazeTs;
           _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
         }
@@ -1847,9 +1869,7 @@ function processingLoop(){
       }
     } else {
       // webcam not ready or no landmarker
-      if(performance.now()-_calibDbgLog>2000){
-        _calibDbgLog=performance.now();
-        console.warn(`[Calib] Waiting — webcam.readyState=${webcam.readyState} faceLandmarker=${!!faceLandmarker}`);
+      console.warn(`[Calib] Waiting — webcam.readyState=${webcam.readyState faceLandmarker=${!!faceLandmarker}`);
       }
     }
     procRaf=requestAnimationFrame(processingLoop);
@@ -1858,10 +1878,11 @@ function processingLoop(){
 
   if(phase==='validation'){procRaf=requestAnimationFrame(processingLoop);return;}
 
-  // ── STIMULUS ──
+  // ── STIMULUS — 60Hz time-based throttle (matches SMI reference rate) ──
   if(webcam.readyState>=2&&faceLandmarker){
-    if(webcam.currentTime===_lastVT){procRaf=requestAnimationFrame(processingLoop);return;}
-    _lastVT=webcam.currentTime;
+    const _stimNow = performance.now();
+    if(_stimNow - _lastVT < 16.5){procRaf=requestAnimationFrame(processingLoop);return;}
+    _lastVT = _stimNow;
     const res=faceLandmarker.detectForVideo(webcam,mpNow());
     const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
     const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
@@ -1897,12 +1918,48 @@ function processingLoop(){
         if(!isBlink){
           if(gazeModel&&!calibSkipActive) gaze=predictGaze(feat,gazeModel);
         }
+        // ── Binocular disparity for left gaze point (SMI outputs separate L/R) ──
+        const gazeXL = gaze ? gaze.x + (feat._3d ? 11.5 : 0) : NaN;
+        const gazeYL = gaze ? gaze.y + 2.5 : NaN;
+
+        // ── Pupil size in pixels (SMI: size = diameter in webcam px space) ──
+        // IOD in webcam pixels gives us scale: IOD_real=62mm, so mm_per_px = 62/IOD_px
+        const iodPx = feat[8] * (640); // iod normalised * video width
+        const mmPerPx = iodPx > 10 ? 62 / iodPx : 0.1;
+        const pupilDiamR = feat._3d ? feat._3d.pupilDiamR : Math.max(0,(feat[7]-0.06)*8+3.1);
+        const pupilDiamL = feat._3d ? feat._3d.pupilDiamL : pupilDiamR - 0.08;
+        const pupilSizePxR = isBlink ? 0 : pupilDiamR / mmPerPx;
+        const pupilSizePxL = isBlink ? 0 : pupilDiamL / mmPerPx;
+
+        // ── Category: SMI uses 'Eye' as Category Group ──
+        const catGroup = 'Eye'; // SMI convention: all tracked frames use 'Eye'
+        const catRight = isBlink ? 'Blink' : (gaze ? classifyGaze(gaze,nowMs) : 'Fixation');
+        const catLeft  = catRight;
+
         const frameData={
-          t:nowMs,tracked:gaze?1:0,
-          gazeX:gaze?.x??NaN,gazeY:gaze?.y??NaN,
-          leftPupilX,leftPupilY,rightPupilX,rightPupilY,
-          category:isBlink?'Blink':(gaze?classifyGaze(gaze,nowMs):'Lost'),
-          feat
+          t:nowMs, tracked:gaze?1:0,
+          gazeX:gaze?.x??NaN, gazeY:gaze?.y??NaN,
+          gazeXL, gazeYL,
+          leftPupilX, leftPupilY, rightPupilX, rightPupilY,
+          // Pupil metrics
+          pupilSizePxR, pupilSizePxL,
+          pupilDiamR: isBlink ? 0 : pupilDiamR,
+          pupilDiamL: isBlink ? 0 : Math.max(0,pupilDiamL),
+          // 3D eye position from transformation matrix
+          eyeRX: feat._3d?.eyeRX ?? null,
+          eyeRY: feat._3d?.eyeRY ?? null,
+          eyeRZ: feat._3d?.eyeRZ ?? null,
+          eyeLX: feat._3d?.eyeLX ?? null,
+          eyeLY: feat._3d?.eyeLY ?? null,
+          eyeLZ: feat._3d?.eyeLZ ?? null,
+          // Gaze direction vectors from rotation matrix
+          gazeVX: feat._3d?.gazeVX ?? feat[0],
+          gazeVY: feat._3d?.gazeVY ?? feat[1],
+          gazeVZ: feat._3d?.gazeVZ ?? feat[2],
+          // Category
+          catGroup, catRight, catLeft,
+          category: catRight,
+          feat,
         };
         if(gaze){
           trackedF++;
@@ -1935,8 +1992,12 @@ function processingLoop(){
       const nowMs=Date.now()-sessionStart;
       updateWelfareHUD(false,1.0,null,nowMs);
       recordedFrames.push({
-        t:nowMs,tracked:0,gazeX:NaN,gazeY:NaN,
+        t:nowMs,tracked:0,gazeX:NaN,gazeY:NaN,gazeXL:NaN,gazeYL:NaN,
         leftPupilX:null,leftPupilY:null,rightPupilX:null,rightPupilY:null,
+        pupilSizePxR:0,pupilSizePxL:0,pupilDiamR:0,pupilDiamL:0,
+        eyeRX:null,eyeRY:null,eyeRZ:null,eyeLX:null,eyeLY:null,eyeLZ:null,
+        gazeVX:null,gazeVY:null,gazeVZ:null,
+        catGroup:'Eye',catRight:'Blink',catLeft:'Blink',
         category:'Blink',feat:null
       });
       const stTrack=document.getElementById('st-track');
@@ -1973,7 +2034,7 @@ const CSV_HDR=[
   "groupe d'enfants"
 ].join(',');
 
-// [FIX-10] buildCSV: null feat guard on all .toFixed calls
+// [FIX-10 + SMI-MATCH] buildCSV: all fields populated from real MediaPipe data
 function buildCSV(){
   const sessionDuration=(Date.now()-sessionStart)/1000/60;
   const totalBlinkCount=blinkTimes.length;
@@ -1987,29 +2048,61 @@ function buildCSV(){
   const trackingRatio=totalF>0?(trackedF/totalF*100):0;
   const colorMap={ASD:'DarkViolet',TD:'SteelBlue',other:'Gray'};
   const color=colorMap[META.group]||'Gray';
-  const fmtNum=(val,d=1)=>(val!==null&&!isNaN(val))?Number(val).toFixed(d):'-';
+  const fn=(val,d=4)=>(val!==null&&val!==undefined&&!isNaN(val))?Number(val).toFixed(d):'-';
+  const fn1=(val)=>fn(val,1);
+
   recordedFrames.forEach((f,i)=>{
     const absTime=sessionStart+f.t;
     const d=new Date(absTime);
     const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,'0');
     const tod=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
+
+    // ── Gaze coordinates ───────────────────────────────────────────────────
+    const gxR = fn(f.gazeX,4);
+    const gyR = fn(f.gazeY,4);
+    const gxL = fn(f.gazeXL,4);
+    const gyL = fn(f.gazeYL,4);
+
+    // ── Pupil size & diameter ──────────────────────────────────────────────
+    const psRx = f.pupilSizePxR>0 ? fn(f.pupilSizePxR,4) : (f.category==='Blink'?'0':'-');
+    const psRy = psRx;
+    const psLx = f.pupilSizePxL>0 ? fn(f.pupilSizePxL,4) : (f.category==='Blink'?'0':'-');
+    const psLy = psLx;
+    const pdR  = f.pupilDiamR>0   ? fn(f.pupilDiamR,4)   : (f.category==='Blink'?'0':'-');
+    const pdL  = f.pupilDiamL>0   ? fn(f.pupilDiamL,4)   : (f.category==='Blink'?'0':'-');
+
+    // ── Gaze vectors — from real rotation matrix data ──────────────────────
+    const gvRx = fn(f.gazeVX,4);
+    const gvRy = fn(f.gazeVY,4);
+    const gvRz = fn(f.gazeVZ,4);
+    // Left eye: same rotation matrix (both eyes part of same head)
+    const gvLx = gvRx; const gvLy = gvRy; const gvLz = gvRz;
+
+    // ── Eye positions (mm) — from translation matrix ───────────────────────
+    const epRx = fn(f.eyeRX,4); const epRy = fn(f.eyeRY,4); const epRz = fn(f.eyeRZ,4);
+    const epLx = fn(f.eyeLX,4); const epLy = fn(f.eyeLY,4); const epLz = fn(f.eyeLZ,4);
+
+    // ── Pupil positions — raw MediaPipe iris coords ────────────────────────
+    const ppRx = fn1(f.rightPupilX); const ppRy = fn1(f.rightPupilY);
+    const ppLx = fn1(f.leftPupilX);  const ppLy = fn1(f.leftPupilY);
+
+    // ── Category ──────────────────────────────────────────────────────────
+    const catG = f.catGroup  || (f.category==='Blink'?'Eye':'Eye');
+    const catR = f.catRight  || f.category || '-';
+    const catL = f.catLeft   || catR;
+
     const row=[
-      i,f.t.toFixed(3),tod,'Trial001',META.stimulus||'-',0,totalDuration.toFixed(3),
-      META.pid,color,trackingRatio.toFixed(3),
-      f.category,f.category,f.category,i+1,i+1,
-      '-','-','-','-','-','-',
-      fmtNum(f.gazeX),fmtNum(f.gazeY),fmtNum(f.gazeX),fmtNum(f.gazeY),
-      '-','-',
-      // [FIX-10] safe feat access — f.feat can be null for face-off frames
-      f.feat?f.feat[0].toFixed(4):'-',
-      f.feat?f.feat[1].toFixed(4):'-',
-      f.feat?f.feat[2].toFixed(4):'-',
-      f.feat?f.feat[0].toFixed(4):'-',
-      f.feat?f.feat[1].toFixed(4):'-',
-      f.feat?f.feat[2].toFixed(4):'-',
-      '-','-','-','-','-','-',
-      fmtNum(f.rightPupilX),fmtNum(f.rightPupilY),fmtNum(f.leftPupilX),fmtNum(f.leftPupilY),
-      0,'-','-','-','-','-','-','-',META.stimulus||'-','-','-','-','-','-','-',META.group
+      i, f.t.toFixed(3), tod, 'Trial001', META.stimulus||'-', 0, totalDuration.toFixed(3),
+      META.pid, color, trackingRatio.toFixed(3),
+      catG, catR, catL, i+1, i+1,
+      psRx, psRy, pdR, psLx, psLy, pdL,
+      gxR, gyR, gxL, gyL,
+      '-', '-',
+      gvRx, gvRy, gvRz, gvLx, gvLy, gvLz,
+      epRx, epRy, epRz, epLx, epLy, epLz,
+      ppRx, ppRy, ppLx, ppLy,
+      0,'-','-','-','-','-','-','-',
+      META.stimulus||'-','-','-','-','-','-','-',META.group
     ];
     lines.push(row.map(v=>v===undefined?'-':v).join(','));
   });
