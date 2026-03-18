@@ -377,7 +377,7 @@ function playChime(freq, vol, duration) {
 // ─── CONFETTI ────────────────────────────────────────────────────────────────
 function startConfettiLight() {
   const colors = ['#f4a261','#e9c46a','#90e0ef','#ffb3c1','#c77dff','#ff6b6b','#4cc9f0'];
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 8; i++) {
     setTimeout(() => {
       const conf = document.createElement('div');
       conf.style.cssText = `position:fixed;top:-10px;left:${Math.random()*100}vw;
@@ -386,13 +386,13 @@ function startConfettiLight() {
         animation:fall-gentle ${2.5+Math.random()*1.5}s linear forwards;`;
       document.body.appendChild(conf);
       setTimeout(() => conf.remove(), 4100);
-    }, i * 25);
+    }, i * 40);
   }
 }
 function startConfettiBig() {
   const colors = ['#f4a261','#e9c46a','#90e0ef','#ffb3c1','#c77dff',
                   '#ff6b6b','#4cc9f0','#ffd700','#00e5b0','#ff9f43'];
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 25; i++) {
     setTimeout(() => {
       const conf = document.createElement('div');
       const size = 5 + Math.random() * 8;
@@ -895,112 +895,14 @@ const CALIB_DWELL_REQUIRED_MS = 1800; // ms of confirmed near-gaze to complete a
 const CALIB_DECAY_RATE        = 0.5;  // fraction of bar lost per second when gaze leaves
 const CALIB_FORCE_SKIP_MS     = 12000;// last-resort skip if point never completes
 
-// ─── DEBUG OVERLAY ───────────────────────────────────────────────────────────
-function ensureDebugDot() {
-  if (document.getElementById('calib-debug-dot')) return;
-
-  // Red gaze dot
-  const dot = document.createElement('div');
-  dot.id = 'calib-debug-dot';
-  dot.style.cssText = `
-    position:fixed;width:24px;height:24px;border-radius:50%;
-    background:rgba(255,60,60,0.92);border:3px solid #fff;
-    pointer-events:none;z-index:9001;transform:translate(-50%,-50%);
-    box-shadow:0 0 14px 5px rgba(255,60,60,0.55);display:none;
-  `;
-  const lbl = document.createElement('div');
-  lbl.style.cssText = `position:absolute;top:28px;left:50%;transform:translateX(-50%);
-    font-size:10px;color:#fff;white-space:nowrap;text-shadow:0 1px 3px #000;font-weight:bold;`;
-  lbl.textContent = '👁 gaze';
-  dot.appendChild(lbl);
-  document.body.appendChild(dot);
-
-  // Info HUD strip
-  const hud = document.createElement('div');
-  hud.id = 'calib-debug-hud';
-  hud.style.cssText = `
-    position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
-    background:rgba(0,0,0,0.8);color:#0ff;font-size:11px;font-family:monospace;
-    padding:6px 16px;border-radius:8px;z-index:9002;pointer-events:none;
-    white-space:nowrap;letter-spacing:0.4px;border:1px solid rgba(0,255,255,0.3);
-  `;
-  document.body.appendChild(hud);
-
-  // Canvas for acceptance rings
-  const rc = document.createElement('canvas');
-  rc.id = 'calib-debug-rings';
-  rc.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:8999;`;
-  rc.width  = window.innerWidth;
-  rc.height = window.innerHeight;
-  document.body.appendChild(rc);
-}
-
-function removeDebugDot() {
+// ─── DEBUG OVERLAY (disabled for production) ─────────────────────────────────
+function ensureDebugDot()  { /* debug removed */ }
+function removeDebugDot()  {
   ['calib-debug-dot','calib-debug-hud','calib-debug-rings'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.remove();
+    const el = document.getElementById(id); if (el) el.remove();
   });
 }
-
-function updateDebugOverlay(gaze, feat, activeIdx, pts) {
-  // Gaze dot
-  const dot = document.getElementById('calib-debug-dot');
-  if (dot) {
-    if (gaze) {
-      dot.style.display = 'block';
-      dot.style.left = gaze.x + 'px';
-      dot.style.top  = gaze.y + 'px';
-    } else {
-      dot.style.display = 'none';
-    }
-  }
-
-  // HUD text
-  const hud = document.getElementById('calib-debug-hud');
-  if (hud) {
-    if (feat) {
-      const ear   = feat[7].toFixed(3);
-      const ih    = feat[6].toFixed(3);   // avg horizontal iris offset
-      const iAbsY = feat[5].toFixed(3);   // raw iris absolute Y (KEY for vertical)
-      const iRelY = feat[4].toFixed(3);   // iris Y relative to face centre
-      const gx    = gaze ? gaze.x.toFixed(0) : '---';
-      const gy    = gaze ? gaze.y.toFixed(0) : '---';
-      const pt    = pts && pts[activeIdx];
-      const dist  = (gaze && pt) ? Math.hypot(gaze.x-pt.x, gaze.y-pt.y).toFixed(0) : '---';
-      const rad   = pt ? getCalibGazeRadius(pt).toFixed(0) : '---';
-      const near  = (gaze && pt && Math.hypot(gaze.x-pt.x,gaze.y-pt.y)<getCalibGazeRadius(pt));
-      hud.style.color = near ? '#0f0' : '#0ff';
-      hud.textContent = `EAR:${ear}  iris_h:${ih}  irisY_abs:${iAbsY}  irisY_rel:${iRelY}  gaze:(${gx},${gy})  dist:${dist}  r:${rad}  ${near?'✅ IN':'❌ OUT'}`;
-    } else {
-      hud.style.color = '#f80';
-      hud.textContent = '⚠ No face detected — move closer or check lighting';
-    }
-  }
-
-  // Acceptance rings
-  const rc = document.getElementById('calib-debug-rings');
-  if (!rc || !pts) return;
-  const ctx = rc.getContext('2d');
-  ctx.clearRect(0, 0, rc.width, rc.height);
-  pts.forEach((pt, i) => {
-    const r = getCalibGazeRadius(pt);
-    const active = (i === activeIdx);
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, r, 0, Math.PI*2);
-    ctx.strokeStyle = active ? 'rgba(0,255,120,0.65)' : 'rgba(255,255,255,0.15)';
-    ctx.lineWidth   = active ? 3 : 1;
-    ctx.setLineDash(active ? [] : [5,5]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // Cross-hair at creature centre
-    if (active) {
-      ctx.beginPath();
-      ctx.moveTo(pt.x-12,pt.y); ctx.lineTo(pt.x+12,pt.y);
-      ctx.moveTo(pt.x,pt.y-12); ctx.lineTo(pt.x,pt.y+12);
-      ctx.strokeStyle='rgba(0,255,120,0.5)'; ctx.lineWidth=1; ctx.stroke();
-    }
-  });
-}
+function updateDebugOverlay() { /* debug removed */ }
 
 // Star canvas for background
 let calibStarCvs=null, calibStarCtx=null, calibStars=[];
