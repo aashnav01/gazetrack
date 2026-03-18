@@ -885,9 +885,11 @@ function buildCalibPoints() {
 function getCalibGazeRadius(pt) {
   const diag = Math.hypot(window.innerWidth, window.innerHeight);
   const base  = diag * CALIB_DIAG_FRACTION;
-  // Bottom corners (y > 50% screen) get extra radius — hardest for iris to reach
-  const isBottomCorner = pt.isCorner && (pt.y > window.innerHeight * 0.5);
-  const mult  = isBottomCorner ? 2.8 : (pt.isCorner ? 2.2 : 1.4);
+  // Centre point gets huge radius — should never miss
+  if (!pt.isCorner) return Math.min(window.innerWidth, window.innerHeight) * 0.45;
+  // Bottom corners hardest to reach
+  const isBottomCorner = pt.y > window.innerHeight * 0.5;
+  const mult  = isBottomCorner ? 2.8 : 2.2;
   const maxR  = Math.min(window.innerWidth, window.innerHeight) * 0.49;
   return Math.min(maxR, Math.max(200, base * mult));
 }
@@ -1213,6 +1215,8 @@ function startCalib() {
   _calibLoopT       = 0;
   _calibDwellAccum  = 0;
   _calibLastFrameTs = 0;
+  _calibProcTs      = -1;
+  _calibDbgLog      = 0;
   _fatigueEarHistory   = [];
   _fatigueBlinkTimes   = [];
   _fatigueTiredFrames  = 0;
@@ -1241,43 +1245,50 @@ function startCalib() {
 }
 
 function advanceCalibPoint() {
-  if(calibIdx>=CALIB_TOTAL_PTS){ finaliseCalib(); return; }
+  if (calibIdx >= CALIB_TOTAL_PTS) { finaliseCalib(); return; }
+
   clearTimeout(_calibSkipTimer);
-  _calibHoldStart   = null;
-  _calibHoldLostAt  = null;
-  _calibSampling    = false;
-  _calibPointSamples= [];
-  _calibSparkled    = false;
-  _calibDwellAccum  = 0;       // reset dwell timer for new point
-  _calibLastFrameTs = 0;
-  calibState        = 'gap';
+  _calibHoldStart    = null;
+  _calibHoldLostAt   = null;
+  _calibSampling     = false;
+  _calibPointSamples = [];
+  _calibSparkled     = false;
+  _calibDwellAccum   = 0;
+  _calibLastFrameTs  = 0;
+  calibState         = 'gap';
 
   updateCalibHUD();
-  ensureDebugDot();
 
-  const skipBtn=document.getElementById('calib-skip-btn');
-  if(skipBtn) skipBtn.style.display=calibFailCount>=1?'inline-block':'none';
+  const skipBtn = document.getElementById('calib-skip-btn');
+  if (skipBtn) skipBtn.style.display = calibFailCount >= 1 ? 'inline-block' : 'none';
+
+  // Snapshot the index this call is responsible for
+  const myIdx = calibIdx;
 
   setTimeout(() => {
-    if (calibState !== 'gap') return;
-    showCalibCreature(calibIdx);
-    calibState = 'showing';
+    // If a force-skip already moved us past this point, do nothing
+    if (calibIdx !== myIdx) return;
 
-    // Instruction banner
-    const cr = creatureEls[calibIdx];
-    if (cr) setCalibBanner(`👀 Look at ${cr.def.name}! The red dot should move toward them!`);
+    showCalibCreature(myIdx);
+    calibState = 'showing'; // runCalibLoop will immediately promote to 'holding'
 
-    // Force-skip — bottom corners get extra time (18s), others 12s
-    const pt = calibPoints[calibIdx];
-    const isBottomCorner = pt && pt.isCorner && (pt.y > window.innerHeight * 0.5);
+    const cr  = creatureEls[myIdx];
+    const pt  = calibPoints[myIdx];
+    const isBottomCorner = pt && pt.isCorner && pt.y > window.innerHeight * 0.5;
+    setCalibBanner(isBottomCorner
+      ? `👀 Look toward the bottom corner at ${cr?.def?.name || 'the creature'}!`
+      : `👀 Look at ${cr?.def?.name || 'the creature'}!`);
+
+    // Force-skip — captures myIdx so it only fires for this exact point
     const skipMs = isBottomCorner ? 18000 : CALIB_FORCE_SKIP_MS;
     _calibSkipTimer = setTimeout(() => {
-      if (calibState !== 'done-pt') {
-        console.warn(`[GazeTrack] Force-skipping point ${calibIdx} after timeout`);
-        calibIdx++;
-        advanceCalibPoint();
-      }
+      if (calibIdx !== myIdx) return; // already moved on
+      if (calibState === 'done-pt') return; // completed normally
+      console.warn(`[GazeTrack] Force-skipping point ${myIdx} (state=${calibState} dwell=${_calibDwellAccum.toFixed(0)}ms)`);
+      calibIdx++;
+      advanceCalibPoint();
     }, skipMs);
+
   }, CALIB_GAP_MS);
 }
 
@@ -1356,19 +1367,23 @@ function runCalibLoop() {
         ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
         : false;
 
-      // ── DWELL FILL / DECAY — only for the active point ──
+      // ── DWELL FILL — pure timer for ALL points, gaze speeds it up 3× ──────
+      // Allowed states: 'showing', 'holding', 'sampling'
+      // 'gap' and 'done-pt' are excluded — creature not yet visible or already done
       let holdPct = 0;
-      if (i === calibIdx && !isDone && calibState !== 'gap' && calibState !== 'done-pt') {
-        if (gazeNear) {
-          _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
-        } else {
-          // Decay slowly so brief gaze-away doesn't kill progress
-          _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * CALIB_DECAY_RATE);
-        }
+      const dwellActive = (i === calibIdx && !isDone
+        && calibState !== 'gap' && calibState !== 'done-pt' && calibState !== 'idle');
+
+      if (dwellActive) {
+        // Auto-transition 'showing' → 'holding' immediately
+        if (calibState === 'showing') calibState = 'holding';
+
+        const speedMult = gazeNear ? 3.0 : 0.25;
+        _calibDwellAccum = Math.min(_calibDwellAccum + dt * speedMult, CALIB_DWELL_REQUIRED_MS);
         holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
 
-        // Start sampling once we're 30% through dwell
-        if (holdPct >= 0.3 && !_calibSampling) {
+        // Start sampling once 25% filled
+        if (holdPct >= 0.25 && !_calibSampling) {
           _calibSampling      = true;
           _calibSamplingStart = now;
           _calibPointSamples  = [];
@@ -1376,7 +1391,7 @@ function runCalibLoop() {
           setCalibBanner(`😋 ${cr.def.name} loves it! Keep looking!`);
         }
 
-        // Complete when dwell is full
+        // Complete when full
         if (_calibDwellAccum >= CALIB_DWELL_REQUIRED_MS && !_calibSparkled) {
           _calibSparkled = true;
           addCalibBurst(pt.x, pt.y, cr.def.color, 36);
@@ -1732,15 +1747,18 @@ document.getElementById('sound-btn')?.addEventListener('click',()=>{
 });
 
 // ─── MAIN PROCESSING LOOP ────────────────────────────────────────────────────
+let _calibProcTs = -1;  // separate timestamp for calib loop (don't share with stimulus)
+let _calibDbgLog = 0;   // throttle console logs to once per second
+
 function processingLoop(){
   if(phase==='done') return;
 
-  // ── CALIB-RUN ── [FIX-4] use performance.now() throttle, not video timestamp dedup
+  // ── CALIB-RUN ──
   if(phase==='calib-run'){
     if(webcam.readyState>=2&&faceLandmarker){
-      const _calibNowTs=performance.now();
-      if(_calibNowTs-_lastVT<33){procRaf=requestAnimationFrame(processingLoop);return;}
-      _lastVT=_calibNowTs;
+      const now=performance.now();
+      if(now-_calibProcTs<33){procRaf=requestAnimationFrame(processingLoop);return;}
+      _calibProcTs=now;
       try{
         const res=faceLandmarker.detectForVideo(webcam,mpNow());
         const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
@@ -1750,7 +1768,7 @@ function processingLoop(){
           const lm=res.faceLandmarks[0];
           const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
           const feat=extractFeatures(lm,mat);
-          _calibLastFeat = feat;
+          _calibLastFeat=feat;
           const ear=feat[7];
           const isBlink=ear<0.06;
 
@@ -1761,12 +1779,21 @@ function processingLoop(){
             _calibCurrentGaze=rawGaze;
             _calibLastGaze=rawGaze;
             _calibLastGazeTs=performance.now();
+
+            // Log gaze + distance to current target once per second
+            if(now-_calibDbgLog>1000){
+              _calibDbgLog=now;
+              const pt=calibPoints[calibIdx];
+              const dist=pt?Math.hypot(rawGaze.x-pt.x,rawGaze.y-pt.y).toFixed(0):'?';
+              const rad=pt?getCalibGazeRadius(pt).toFixed(0):'?';
+              const near=pt&&Math.hypot(rawGaze.x-pt.x,rawGaze.y-pt.y)<getCalibGazeRadius(pt);
+              console.log(`[Calib pt${calibIdx}] gaze=(${rawGaze.x.toFixed(0)},${rawGaze.y.toFixed(0)}) target=(${pt?pt.x.toFixed(0):'?'},${pt?pt.y.toFixed(0):'?'}) dist=${dist} radius=${rad} ${near?'✅IN':'❌OUT'} iris_h=${feat[6].toFixed(3)} irisY_abs=${feat[5].toFixed(3)} EAR=${feat[7].toFixed(3)} state=${calibState} dwell=${_calibDwellAccum.toFixed(0)}ms`);
+            }
           } else {
             const bridgeAge=performance.now()-_calibLastGazeTs;
             _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
           }
 
-          // Collect samples whenever state is 'sampling' or 'holding' (after 30% dwell)
           if((calibState==='sampling'||calibState==='holding')&&!isBlink){
             const pt=calibPoints[calibIdx];
             if(pt){
@@ -1775,10 +1802,23 @@ function processingLoop(){
             }
           }
         } else {
+          // No face — log once per second
+          if(performance.now()-_calibDbgLog>1000){
+            _calibDbgLog=performance.now();
+            console.warn('[Calib] No face detected — check camera/lighting');
+          }
           const bridgeAge=performance.now()-_calibLastGazeTs;
           _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
         }
-      }catch(e){}
+      }catch(e){
+        console.error('[Calib] detectForVideo error:',e);
+      }
+    } else {
+      // webcam not ready or no landmarker
+      if(performance.now()-_calibDbgLog>2000){
+        _calibDbgLog=performance.now();
+        console.warn(`[Calib] Waiting — webcam.readyState=${webcam.readyState} faceLandmarker=${!!faceLandmarker}`);
+      }
     }
     procRaf=requestAnimationFrame(processingLoop);
     return;
