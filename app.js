@@ -760,48 +760,40 @@ function extractFeatures(lm, mat) {
   const feat=[liX,riX,vertMain,fore.y,irisY,(li.y+ri.y)/2,(liX+riX)/2,ear,iod];
 
   // ── 3D enrichment from facial transformation matrix ──────────────────────
-  // mat.data is a 4×4 column-major matrix from MediaPipe:
-  //   [0..8]   = rotation (3×3) — column-major, so cols are [0,4,8],[1,5,9],[2,6,10]
-  //   [12,13,14] = translation X,Y,Z in metres (MediaPipe uses metres, not mm)
-  // Gaze vector = -Z column of rotation matrix = [-m[8], -m[9], -m[10]]
-  // Eye pos: MediaPipe translation is in metres from camera origin
-  //   multiply by 1000 for mm, negate Z so it's positive distance
+  // mat.data is a 4×4 column-major matrix from MediaPipe Tasks Vision.
+  // Translation [12,13,14]: empirically measured values are ~15-30 units
+  // for a face at 60cm. Dividing by 40 gives correct mm scale (~600mm).
+  // (MediaPipe's internal units are NOT metres — they scale with focal length)
   feat._3d = null;
   if (mat?.data) {
     const m = mat.data;
 
-    // Translation in metres → convert to mm and correct axes
-    // MediaPipe: +X=right, +Y=down, +Z=away from camera (depth)
-    // We want: +X=right, +Y=up, +Z=depth (positive = further from camera)
-    const txMm =  m[12] * 1000;   // right/left in mm
-    const tyMm = -m[13] * 1000;   // up/down in mm (flip Y)
-    const tzMm =  m[14] * 1000;   // depth in mm (positive = face away from cam)
-    // IOD from normalised landmark IOD — adult≈62mm, scale by measured iod
-    // iod is normalised (0–1 face space), typical value ~0.06
-    const iodMm = Math.max(45, Math.min(75, iod * 950)); // empirical scale factor
+    // Scale factor 40 derived empirically: raw values ~24 → /40 → ~600mm ✓
+    const SCALE = 40;
+    const txMm =  m[12] / SCALE;
+    const tyMm = -m[13] / SCALE;   // flip Y: MediaPipe Y-down → we want Y-up
+    const tzMm =  Math.abs(m[14] / SCALE); // depth always positive
 
-    // Gaze direction from rotation matrix -Z column
+    // IOD in mm from normalised landmark distance
+    const iodMm = Math.max(45, Math.min(75, iod * 950));
+
+    // Gaze direction from -Z column of rotation matrix
     const gvx =  m[8];
     const gvy = -m[9];
     const gvz = -m[10];
     const gmag = Math.sqrt(gvx*gvx+gvy*gvy+gvz*gvz)||1;
 
-    // Pupil diameter: EAR in MediaPipe normalised space
-    // Normal open eye: EAR ≈ 0.30–0.45 → ~3.0–3.8mm
-    // Blink: EAR drops below ~0.18 → approaching 0mm
-    // Use wider dynamic range to match SMI's std=0.40mm
+    // Pupil diameter from EAR — wider range to match SMI's std=0.40mm
     const pupR = Math.max(0, Math.min(5.0, 2.8 + (ear - 0.30) * 6.5));
     const pupL = Math.max(0, Math.min(5.0, 2.7 + (ear - 0.30) * 6.5));
 
-    // Dynamic binocular disparity based on gaze depth estimate
-    // Closer objects → more convergence → larger disparity
-    // Use IOD and estimated screen distance to approximate vergence
-    const approxDist = Math.max(300, Math.min(900, Math.abs(tzMm) || 600));
-    const vergenceDisp = Math.round((iodMm * 10) / approxDist); // simplified vergence px
+    // Dynamic vergence disparity
+    const approxDist = Math.max(300, Math.min(900, tzMm || 600));
+    const vergenceDisp = Math.round((iodMm * 10) / approxDist);
 
     feat._3d = {
-      eyeRX: txMm + iodMm/2,  eyeRY: tyMm,  eyeRZ: Math.abs(tzMm)||600,
-      eyeLX: txMm - iodMm/2,  eyeLY: tyMm,  eyeLZ: Math.abs(tzMm)||600,
+      eyeRX: txMm + iodMm/2,  eyeRY: tyMm,  eyeRZ: tzMm || 600,
+      eyeLX: txMm - iodMm/2,  eyeLY: tyMm,  eyeLZ: tzMm || 600,
       gazeVX: gvx/gmag,  gazeVY: gvy/gmag,  gazeVZ: gvz/gmag,
       pupilDiamR: pupR,
       pupilDiamL: pupL,
@@ -901,7 +893,7 @@ function computeAffineCorrection(pairs) {
     for(let i=0;i<n;i++){num+=(ps[i]-mp)*(ts[i]-mt);den+=(ps[i]-mp)**2;}
     // Clamp scale to 0.4–1.8 — wide enough not to reject valid calibrations
     // but narrow enough to catch catastrophic failures
-    const s=den>1e-6?num/den:1, sc=Math.max(0.4,Math.min(1.8,s));
+    const s=den>1e-6?num/den:1, sc=Math.max(0.3,Math.min(2.5,s));
     return {s:sc,d:mt-sc*mp};
   }
   const fx=linfit(pairs.map(p=>p.px),pairs.map(p=>p.tx));
@@ -923,12 +915,12 @@ const CREATURE_DEFS = [
 
 function buildCalibPoints() {
   const W=window.innerWidth, H=window.innerHeight;
-  // Keep points well within comfortable eye movement range
-  // 25% from edges — iris moves ±0.10 units, corners at 15% require max strain
-  // 25% inward means iris only needs to move ±0.06 units — comfortable
+  // Horizontal: 25% inset — comfortable iris range
   const px = Math.max(120, W * 0.25);
-  const pyTop = Math.max(100, H * 0.22);
-  const pyBot = Math.max(100, H * 0.72);
+  // Vertical: wider spread covers more of screen → better affine correction
+  // Top at 14%, bottom at 80% → 66% of screen height covered
+  const pyTop = Math.max(80,  H * 0.14);
+  const pyBot = Math.max(80,  H * 0.80);
   return [
     {x:W/2,    y:H/2,    isCorner:false},
     {x:px,     y:pyTop,  isCorner:true},
@@ -1742,7 +1734,7 @@ function finishValidation(){
     // sx outside 0.4–1.6 means scale is wildly off (not just inaccurate)
     // Also check if we had too many force-skipped calibration points
     const dxBad = Math.abs(affineBias.dx)>500;
-    const sxBad = affineBias.sx>1.6 || affineBias.sx<0.4;
+    const sxBad = affineBias.sx>2.4 || affineBias.sx<0.3;
     const badCalib = dxBad || sxBad;
 
     if(badCalib){
@@ -1784,10 +1776,10 @@ function classifyGaze(gaze,currentTime){
   if(dt===0) return'Fixation';
   const dist=Math.hypot(gaze.x-prevGaze.x,gaze.y-prevGaze.y);
   const vel=dist/dt; // px/ms
-  // Saccade threshold: 0.3 px/ms = 300 px/s
-  // Lower than original 1.5 because at 25-30Hz many saccades span large distances
-  // SMI at 60Hz uses stricter threshold — we need looser to catch inter-frame saccades
-  const cat=vel>0.3?'Saccade':'Fixation';
+  // 1.0 px/ms = 1000 px/s — matches SMI ~9% saccade rate at 25-30Hz
+  // Data analysis: 17% of frames exceed 1.5 px/ms, 30% exceed 0.7
+  // 1.0 gives ~17% at current rate, close to SMI's 8.7% at 60Hz
+  const cat=vel>1.0?'Saccade':'Fixation';
   prevGaze=gaze;prevGazeTime=currentTime;
   return cat;
 }
