@@ -897,9 +897,9 @@ function getCalibGazeRadius(pt) {
   return 200;
 }
 
-const CALIB_DWELL_REQUIRED_MS = 1000; // ms of confirmed near-gaze to complete a point (was 1800)
-const CALIB_DECAY_RATE        = 0.3;  // bar decay rate when gaze leaves
-const CALIB_FORCE_SKIP_MS     = 15000;// last-resort skip (was 12000)
+const CALIB_DWELL_REQUIRED_MS = 1200; // ms of net confirmed gaze to complete
+const CALIB_DECAY_RATE        = 0.08; // very slow decay — gaze noise shouldn't erase progress
+const CALIB_FORCE_SKIP_MS     = 20000;// generous skip timeout
 
 // ─── DEBUG OVERLAY (disabled for production) ─────────────────────────────────
 function ensureDebugDot()  { /* debug removed */ }
@@ -1372,12 +1372,13 @@ function runCalibLoop() {
       // Tell estimateGazeFromIris what Y to use for this point
       if (i === calibIdx) _calibTargetY = pt.y;
 
-      // Pre-calib: horizontal-only check with tighter threshold
+      // Pre-calib: horizontal-only check (Y is set to creature Y so dist is purely X)
       // Full 2D Euclidean after model is trained
+      const horizThresh = gazeModel ? radius : 180; // 180px horizontal window pre-calib
       const gazeNear = activeGaze
         ? (gazeModel
             ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
-            : Math.abs(activeGaze.x - pt.x) < radius * 0.6)  // tighter — was 1.2
+            : Math.abs(activeGaze.x - pt.x) < horizThresh)
         : false;
 
       // ── DWELL FILL — pure timer for ALL points, gaze speeds it up 3× ──────
@@ -1397,8 +1398,8 @@ function runCalibLoop() {
           // Gaze confirmed near — fill bar at 1ms per ms
           _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
         } else {
-          // Gaze not near — decay slowly
-          _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * 0.3);
+          // Gaze not near — decay very slowly so brief noise doesn't reset progress
+          _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * CALIB_DECAY_RATE);
         }
         holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
 
@@ -2099,5 +2100,6 @@ window.addEventListener('beforeunload',()=>{
   if(camStream)     camStream.getTracks().forEach(t=>t.stop());
 });
 window.addEventListener('resize',()=>{
-  if(phase==='calib-run') calibPoints=buildCalibPoints();
+  // Never rebuild calibPoints mid-run — it jumps targets and corrupts dwell
+  if(phase==='calib-ready') calibPoints=buildCalibPoints();
 });
