@@ -801,46 +801,39 @@ function predictGaze(feat, model) {
 }
 
 // ─── GAZE ESTIMATION FROM IRIS (pre-calibration) ────────────────────────────
-// What the logs show:
-//   irisY_abs (feat[5]) only spans 0.341→0.382 = 0.04 units across full session
-//   → completely useless for vertical mapping
-//   iris_h (feat[6]) spans -0.081→+0.062 → good horizontal signal
-//   feat[2] = head pitch (degrees/30) → moves when you look up/down → use for Y
-//   feat[3] = fore.y (forehead absolute Y, 0–1) → also tracks head tilt
+// Log analysis shows:
+//   pitch range: -0.072 to -0.102 (only 0.03 delta — useless for vertical)
+//   irisY_abs range: 0.341 to 0.382 (only 0.04 delta — useless for vertical)
+//   iris_h range: -0.101 to +0.095 (good 0.2 delta — horizontal works)
 //
-// Strategy:
-//   X: feat[6] (iris horizontal offset) — already working well
-//   Y: feat[2] (head pitch) + feat[3] (forehead Y) combined
+// Conclusion: NO pre-calibration signal has enough vertical range to map
+// gaze Y reliably. Strategy: use a SPLIT acceptance zone —
+//   X: real iris horizontal estimate
+//   Y: accept ANY y within a wide vertical band centred on the creature
+//
+// The acceptance radius check in runCalibLoop handles this correctly already
+// as long as we set gaze.y to the creature's own Y (so dist is purely horizontal).
+// We achieve this by setting gaze Y = current creature target Y always.
+// This means vertical is "always accepted" and only horizontal must be correct.
+let _calibTargetY = -1; // set by runCalibLoop to current creature Y
+
 function estimateGazeFromIris(feat) {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
-  // Horizontal — working correctly, keep as-is
-  const rawX = (-feat[6] * 6.0 + 0.5) * W;
+  // Horizontal — iris_h (feat[6]) range from logs: ≈ ±0.10
+  // Scale: at iris_h = +0.095 (max left) → should be x≈192 (15% of W)
+  //        at iris_h = -0.101 (max right) → should be x≈1088 (85% of W)
+  // Derived: scale = (0.85-0.15)W / (0.095+0.101) = 0.70W / 0.196 ≈ 3.57W
+  // But we keep some margin so use 5.0 with centred offset
+  const rawX = (-feat[6] * 5.0 + 0.5) * W;
 
-  // Vertical — use head pitch (feat[2]) combined with forehead Y (feat[3])
-  // feat[2] = pitchDeg/30: negative = looking up, positive = looking down
-  //           typical range: -0.3 (top of screen) to +0.3 (bottom of screen)
-  // feat[3] = fore.y: forehead in normalised 0–1 space
-  //           typical range: ~0.10 (looking down) to ~0.35 (looking up)
-  //
-  // Combine both signals: pitch is more reliable, forehead Y adds stability
-  const pitch   = feat[2];   // ≈ -0.3 to +0.3
-  const foreY   = feat[3];   // ≈ 0.10 to 0.35
-
-  // Remap pitch: -0.25 → top of screen, +0.25 → bottom
-  const pitchY  = (-pitch / 0.25 + 1) * 0.5; // → 0 (top) to 1 (bottom)
-
-  // Remap foreY: 0.35 → top, 0.10 → bottom (inverted)
-  const foreNorm = 1 - ((foreY - 0.10) / (0.35 - 0.10)); // → 0 (top) to 1 (bottom)
-
-  // Blend: 70% pitch, 30% forehead (pitch has more vertical range)
-  const blended = pitchY * 0.7 + foreNorm * 0.3;
-  const rawY    = blended * H;
+  // Vertical — use creature Y directly (no reliable vertical signal pre-calib)
+  const rawY = _calibTargetY >= 0 ? _calibTargetY : H * 0.5;
 
   return {
     x: Math.max(0, Math.min(W, rawX)),
-    y: Math.max(0, Math.min(H, rawY)),
+    y: rawY,
   };
 }
 
@@ -901,9 +894,9 @@ function getCalibGazeRadius(pt) {
   return Math.min(maxR, Math.max(200, base * mult));
 }
 
-const CALIB_DWELL_REQUIRED_MS = 1800; // ms of confirmed near-gaze to complete a point
-const CALIB_DECAY_RATE        = 0.5;  // fraction of bar lost per second when gaze leaves
-const CALIB_FORCE_SKIP_MS     = 12000;// last-resort skip if point never completes
+const CALIB_DWELL_REQUIRED_MS = 1000; // ms of confirmed near-gaze to complete a point (was 1800)
+const CALIB_DECAY_RATE        = 0.3;  // bar decay rate when gaze leaves
+const CALIB_FORCE_SKIP_MS     = 15000;// last-resort skip (was 12000)
 
 // ─── DEBUG OVERLAY (disabled for production) ─────────────────────────────────
 function ensureDebugDot()  { /* debug removed */ }
@@ -1224,6 +1217,7 @@ function startCalib() {
   _calibLastFrameTs = 0;
   _calibProcTs      = -1;
   _calibDbgLog      = 0;
+  _calibTargetY     = -1;
   _fatigueEarHistory   = [];
   _fatigueBlinkTimes   = [];
   _fatigueTiredFrames  = 0;
@@ -1370,8 +1364,16 @@ function runCalibLoop() {
       if (!pt) return;
       const isDone   = doneCalibPoints.has(i);
       const radius   = getCalibGazeRadius(pt);
+
+      // Tell estimateGazeFromIris what Y to use for this point
+      if (i === calibIdx) _calibTargetY = pt.y;
+
+      // Horizontal-only distance pre-calib (Y is set to creature Y so dist is purely X)
+      // Full 2D Euclidean after model is trained
       const gazeNear = activeGaze
-        ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
+        ? (gazeModel
+            ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
+            : Math.abs(activeGaze.x - pt.x) < radius * 1.2)  // 20% extra for iris noise
         : false;
 
       // ── DWELL FILL — pure timer for ALL points, gaze speeds it up 3× ──────
@@ -1385,8 +1387,13 @@ function runCalibLoop() {
         // Auto-transition 'showing' → 'holding' immediately
         if (calibState === 'showing') calibState = 'holding';
 
-        const speedMult = gazeNear ? 3.0 : 0.25;
-        _calibDwellAccum = Math.min(_calibDwellAccum + dt * speedMult, CALIB_DWELL_REQUIRED_MS);
+        if (gazeNear) {
+          // Gaze confirmed near — fill bar
+          _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
+        } else {
+          // Gaze not near — bar does NOT fill, decays slightly
+          _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * 0.3);
+        }
         holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
 
         // Start sampling once 25% filled
