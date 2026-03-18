@@ -923,37 +923,42 @@ const CREATURE_DEFS = [
 
 function buildCalibPoints() {
   const W=window.innerWidth, H=window.innerHeight;
-  const px=Math.max(100, W*0.15);
-  const pyTop=Math.max(90,  H*0.16);   // top corners
-  const pyBot=Math.max(90,  H*0.78);   // bottom corners — was H-pyTop ≈ 84%, now 78%
+  // Keep points well within comfortable eye movement range
+  // 25% from edges — iris moves ±0.10 units, corners at 15% require max strain
+  // 25% inward means iris only needs to move ±0.06 units — comfortable
+  const px = Math.max(120, W * 0.25);
+  const pyTop = Math.max(100, H * 0.22);
+  const pyBot = Math.max(100, H * 0.72);
   return [
-    {x:W/2,   y:H/2,    isCorner:false},
-    {x:px,    y:pyTop,  isCorner:true},
-    {x:W-px,  y:pyTop,  isCorner:true},
-    {x:W-px,  y:pyBot,  isCorner:true},
-    {x:px,    y:pyBot,  isCorner:true},
+    {x:W/2,    y:H/2,    isCorner:false},
+    {x:px,     y:pyTop,  isCorner:true},
+    {x:W-px,   y:pyTop,  isCorner:true},
+    {x:W-px,   y:pyBot,  isCorner:true},
+    {x:px,     y:pyBot,  isCorner:true},
   ];
 }
 
 // ─── CALIBRATION STRATEGY ────────────────────────────────────────────────────
-// Gaze MUST confirm the user is looking. The bar fills while gaze is near the
-// creature and decays slowly when gaze drifts. A 12s force-skip is the last resort.
-// A full debug overlay (red dot + green ring + HUD strip) is always shown so
-// you can see exactly what the tracker thinks and diagnose any issues.
+// PURE TIMER: the bar fills automatically over CALIB_DWELL_REQUIRED_MS.
+// No gaze proximity check needed — just show the creature and collect samples.
+// The child (or adult) only needs to LOOK AT the screen in the right direction.
+// Samples are collected every frame during the dwell window.
+// The regression model figures out the correct mapping from the labelled samples.
+// Gaze proximity detection was removed because:
+//   1. Pre-calibration iris estimates are unreliable
+//   2. Children don't need to "confirm" gaze — they just need to look
+//   3. Every commercial child eye-tracker uses auto-advance, not gaze-gating
 
 function getCalibGazeRadius(pt) {
-  // Centre: large radius, just needs to be roughly central
+  // Still used for visual feedback (creature glows when gaze is near)
+  // but NOT used to gate dwell accumulation
   if (!pt.isCorner) return Math.min(window.innerWidth, window.innerHeight) * 0.42;
-  // Corners: tighter — child must genuinely look toward that side
-  // From logs: iris_h spans ≈ ±0.10 across full screen width (1280px)
-  // So 1px ≈ 0.10/640 = 0.000156 iris units → radius of 200px ≈ iris_h of 0.031
-  // That's comfortably larger than noise (±0.01) but requires actual gaze direction
-  return 200;
+  return 220;
 }
 
-const CALIB_DWELL_REQUIRED_MS = 1200; // ms of net confirmed gaze to complete
-const CALIB_DECAY_RATE        = 0.08; // very slow decay — gaze noise shouldn't erase progress
-const CALIB_FORCE_SKIP_MS     = 20000;// generous skip timeout
+const CALIB_DWELL_REQUIRED_MS = 2500; // ms to show each creature and collect samples
+const CALIB_DECAY_RATE        = 0;    // no decay — pure timer
+const CALIB_FORCE_SKIP_MS     = 8000; // safety net only
 
 // ─── DEBUG OVERLAY (disabled for production) ─────────────────────────────────
 function ensureDebugDot()  { /* debug removed */ }
@@ -1333,7 +1338,7 @@ function advanceCalibPoint() {
     const pt  = calibPoints[myIdx];
     const isBottomCorner = pt && pt.isCorner && pt.y > window.innerHeight * 0.5;
     setCalibBanner(isBottomCorner
-      ? `👀 Look toward the bottom corner at ${cr?.def?.name || 'the creature'}!`
+      ? `👀 Look at ${cr?.def?.name || 'the creature'} in the corner!`
       : `👀 Look at ${cr?.def?.name || 'the creature'}!`);
 
     // Force-skip — captures myIdx so it only fires for this exact point
@@ -1425,39 +1430,29 @@ function runCalibLoop() {
       // Tell estimateGazeFromIris what Y to use for this point
       if (i === calibIdx) _calibTargetY = pt.y;
 
-      // Pre-calib: horizontal-only check (Y is set to creature Y so dist is purely X)
-      // Full 2D Euclidean after model is trained
-      const horizThresh = gazeModel ? radius : 180; // 180px horizontal window pre-calib
+      // Gaze proximity — only used for visual feedback (creature glow), NOT for gating
       const gazeNear = activeGaze
         ? (gazeModel
             ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
-            : Math.abs(activeGaze.x - pt.x) < horizThresh)
+            : Math.abs(activeGaze.x - pt.x) < 220)
         : false;
 
-      // ── DWELL FILL — pure timer for ALL points, gaze speeds it up 3× ──────
-      // Allowed states: 'showing', 'holding', 'sampling'
-      // 'gap' and 'done-pt' are excluded — creature not yet visible or already done
+      // ── PURE AUTO-TIMER DWELL ─────────────────────────────────────────────
+      // Bar fills at constant rate — no gaze detection needed to advance.
+      // Child just needs to look at the screen. Samples collected every frame.
       let holdPct = 0;
       const dwellActive = (i === calibIdx && !isDone
         && calibState !== 'gap' && calibState !== 'done-pt' && calibState !== 'idle');
 
       if (dwellActive) {
-        // Auto-transition 'showing' → 'holding', but skip accumulation this frame
-        // so _calibLastFrameTs has time to produce a real dt on the next frame
-        if (calibState === 'showing') {
-          calibState = 'holding';
-          // Don't accumulate yet — first frame dt is unreliable
-        } else if (gazeNear) {
-          // Gaze confirmed near — fill bar at 1ms per ms
-          _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
-        } else {
-          // Gaze not near — decay very slowly so brief noise doesn't reset progress
-          _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * CALIB_DECAY_RATE);
-        }
+        if (calibState === 'showing') calibState = 'holding';
+
+        // Always accumulate — pure time-based
+        _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
         holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
 
-        // Start sampling once 25% filled
-        if (holdPct >= 0.25 && !_calibSampling) {
+        // Start collecting samples after small settling delay (20% in)
+        if (holdPct >= 0.20 && !_calibSampling) {
           _calibSampling      = true;
           _calibSamplingStart = now;
           _calibPointSamples  = [];
@@ -1465,7 +1460,7 @@ function runCalibLoop() {
           setCalibBanner(`😋 ${cr.def.name} loves it! Keep looking!`);
         }
 
-        // Complete when full
+        // Complete when timer done
         if (_calibDwellAccum >= CALIB_DWELL_REQUIRED_MS && !_calibSparkled) {
           _calibSparkled = true;
           addCalibBurst(pt.x, pt.y, cr.def.color, 36);
@@ -1505,23 +1500,8 @@ function finaliseCalib() {
   if(rafId) cancelAnimationFrame(rafId);
   removeDebugDot();
 
-  // Remove samples from force-skipped points (they have wrong labels)
-  // A force-skipped point has dwell=0, meaning gaze was never confirmed near it
-  // We track per-point samples in _calibPointSamples — but calibSamples has all points mixed
-  // Simple heuristic: if fewer than 5 samples exist for a target coord, drop them
-  const MIN_PER_POINT = 5;
-  const pointCounts = {};
-  calibSamples.forEach(s => {
-    const key = `${Math.round(s.sx/10)*10},${Math.round(s.sy/10)*10}`;
-    pointCounts[key] = (pointCounts[key]||0) + 1;
-  });
-  const goodSamples = calibSamples.filter(s => {
-    const key = `${Math.round(s.sx/10)*10},${Math.round(s.sy/10)*10}`;
-    return pointCounts[key] >= MIN_PER_POINT;
-  });
-  const droppedPts = calibSamples.length - goodSamples.length;
-  if(droppedPts > 0) console.warn(`[Calib] Dropped ${droppedPts} samples from force-skipped points`);
-  calibSamples = goodSamples;
+  // With pure-timer calibration every point always gets samples
+  // so no need to filter force-skipped points
 
   if(calibSamples.length<MIN_SAMPLES){
     calibFailCount++;
