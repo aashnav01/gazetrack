@@ -114,6 +114,7 @@ let calibSkipActive = false;
 let _calibCurrentGaze = null;
 let _calibLastGaze    = null;
 let _calibLastGazeTs  = 0;
+let _calibLastFeat    = null;   // last extracted feature vector for debug HUD
 let _calibHoldStart   = null;
 let _calibHoldLostAt  = null;   // [FIX-3] hysteresis tracker
 let _calibSampling    = false;
@@ -851,60 +852,127 @@ function buildCalibPoints() {
 }
 
 // ─── CALIBRATION STRATEGY ────────────────────────────────────────────────────
-// The gaze estimator only becomes reliable AFTER calibration completes —
-// so we cannot use gaze proximity to trigger calibration points (chicken-and-egg).
-// Instead we use a DUAL approach:
-//   1. A countdown timer auto-advances each point after the child has had time to look
-//   2. Gaze proximity is used as a BONUS (speeds up the bar) if it happens to work
-//   3. A visible gaze debug dot always shows where the system thinks the user is looking
-// This means calibration ALWAYS completes regardless of gaze accuracy.
+// Gaze MUST confirm the user is looking. The bar fills while gaze is near the
+// creature and decays slowly when gaze drifts. A 12s force-skip is the last resort.
+// A full debug overlay (red dot + green ring + HUD strip) is always shown so
+// you can see exactly what the tracker thinks and diagnose any issues.
 
 function getCalibGazeRadius(pt) {
-  // Extra-generous — this is just a bonus speed-up, not a gate
-  const diag=Math.hypot(window.innerWidth,window.innerHeight);
-  const base=diag*CALIB_DIAG_FRACTION;
-  const mult=pt.isCorner?CALIB_CORNER_BONUS:1.4;
-  const maxR=Math.min(window.innerWidth,window.innerHeight)*0.49;
-  return Math.min(maxR,Math.max(200,base*mult));
+  const diag = Math.hypot(window.innerWidth, window.innerHeight);
+  const base  = diag * CALIB_DIAG_FRACTION;
+  const mult  = pt.isCorner ? CALIB_CORNER_BONUS : 1.4;
+  const maxR  = Math.min(window.innerWidth, window.innerHeight) * 0.49;
+  return Math.min(maxR, Math.max(200, base * mult));
 }
 
-// Auto-hold timer: each point has a fixed dwell period; gaze proximity makes it faster
-const CALIB_AUTO_DWELL_MS  = 2200; // ms the system waits looking at each point
-const CALIB_GAZE_SPEEDUP   = 2.5;  // how much faster the bar fills when gaze is near
+const CALIB_DWELL_REQUIRED_MS = 1800; // ms of confirmed near-gaze to complete a point
+const CALIB_DECAY_RATE        = 0.5;  // fraction of bar lost per second when gaze leaves
+const CALIB_FORCE_SKIP_MS     = 12000;// last-resort skip if point never completes
 
-// Debug gaze dot — always visible during calib so user can verify tracking
-let _debugDot = null;
+// ─── DEBUG OVERLAY ───────────────────────────────────────────────────────────
 function ensureDebugDot() {
-  if (_debugDot) return;
-  _debugDot = document.createElement('div');
-  _debugDot.id = 'calib-debug-dot';
-  _debugDot.style.cssText = `
-    position:fixed;width:22px;height:22px;border-radius:50%;
-    background:rgba(255,80,80,0.85);border:3px solid #fff;
-    pointer-events:none;z-index:9000;transform:translate(-50%,-50%);
-    transition:left 0.05s linear,top 0.05s linear;
-    box-shadow:0 0 12px 4px rgba(255,80,80,0.5);
+  if (document.getElementById('calib-debug-dot')) return;
+
+  // Red gaze dot
+  const dot = document.createElement('div');
+  dot.id = 'calib-debug-dot';
+  dot.style.cssText = `
+    position:fixed;width:24px;height:24px;border-radius:50%;
+    background:rgba(255,60,60,0.92);border:3px solid #fff;
+    pointer-events:none;z-index:9001;transform:translate(-50%,-50%);
+    box-shadow:0 0 14px 5px rgba(255,60,60,0.55);display:none;
   `;
-  // Label
   const lbl = document.createElement('div');
-  lbl.style.cssText = `position:absolute;top:26px;left:50%;transform:translateX(-50%);
-    font-size:10px;color:#fff;white-space:nowrap;text-shadow:0 1px 3px #000;`;
-  lbl.textContent = 'gaze';
-  _debugDot.appendChild(lbl);
-  document.body.appendChild(_debugDot);
+  lbl.style.cssText = `position:absolute;top:28px;left:50%;transform:translateX(-50%);
+    font-size:10px;color:#fff;white-space:nowrap;text-shadow:0 1px 3px #000;font-weight:bold;`;
+  lbl.textContent = '👁 gaze';
+  dot.appendChild(lbl);
+  document.body.appendChild(dot);
+
+  // Info HUD strip
+  const hud = document.createElement('div');
+  hud.id = 'calib-debug-hud';
+  hud.style.cssText = `
+    position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
+    background:rgba(0,0,0,0.8);color:#0ff;font-size:11px;font-family:monospace;
+    padding:6px 16px;border-radius:8px;z-index:9002;pointer-events:none;
+    white-space:nowrap;letter-spacing:0.4px;border:1px solid rgba(0,255,255,0.3);
+  `;
+  document.body.appendChild(hud);
+
+  // Canvas for acceptance rings
+  const rc = document.createElement('canvas');
+  rc.id = 'calib-debug-rings';
+  rc.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:8999;`;
+  rc.width  = window.innerWidth;
+  rc.height = window.innerHeight;
+  document.body.appendChild(rc);
 }
+
 function removeDebugDot() {
-  if (_debugDot) { _debugDot.remove(); _debugDot = null; }
+  ['calib-debug-dot','calib-debug-hud','calib-debug-rings'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
 }
-function updateDebugDot(gaze) {
-  if (!_debugDot) return;
-  if (gaze) {
-    _debugDot.style.display = 'block';
-    _debugDot.style.left = gaze.x + 'px';
-    _debugDot.style.top  = gaze.y + 'px';
-  } else {
-    _debugDot.style.display = 'none';
+
+function updateDebugOverlay(gaze, feat, activeIdx, pts) {
+  // Gaze dot
+  const dot = document.getElementById('calib-debug-dot');
+  if (dot) {
+    if (gaze) {
+      dot.style.display = 'block';
+      dot.style.left = gaze.x + 'px';
+      dot.style.top  = gaze.y + 'px';
+    } else {
+      dot.style.display = 'none';
+    }
   }
+
+  // HUD text
+  const hud = document.getElementById('calib-debug-hud');
+  if (hud) {
+    if (feat) {
+      const ear  = feat[7].toFixed(3);
+      const ih   = feat[6].toFixed(3);
+      const iv   = feat[4].toFixed(3);
+      const gx   = gaze ? gaze.x.toFixed(0) : '---';
+      const gy   = gaze ? gaze.y.toFixed(0) : '---';
+      const pt   = pts && pts[activeIdx];
+      const dist = (gaze && pt) ? Math.hypot(gaze.x-pt.x, gaze.y-pt.y).toFixed(0) : '---';
+      const rad  = pt ? getCalibGazeRadius(pt).toFixed(0) : '---';
+      const near = (gaze && pt && Math.hypot(gaze.x-pt.x,gaze.y-pt.y)<getCalibGazeRadius(pt));
+      hud.style.color = near ? '#0f0' : '#0ff';
+      hud.textContent = `EAR:${ear}  iris_h:${ih}  iris_v:${iv}  gaze:(${gx},${gy})  dist:${dist}  radius:${rad}  ${near?'✅ IN ZONE':'❌ OUT'}`;
+    } else {
+      hud.style.color = '#f80';
+      hud.textContent = '⚠ No face detected — move closer or check lighting';
+    }
+  }
+
+  // Acceptance rings
+  const rc = document.getElementById('calib-debug-rings');
+  if (!rc || !pts) return;
+  const ctx = rc.getContext('2d');
+  ctx.clearRect(0, 0, rc.width, rc.height);
+  pts.forEach((pt, i) => {
+    const r = getCalibGazeRadius(pt);
+    const active = (i === activeIdx);
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, r, 0, Math.PI*2);
+    ctx.strokeStyle = active ? 'rgba(0,255,120,0.65)' : 'rgba(255,255,255,0.15)';
+    ctx.lineWidth   = active ? 3 : 1;
+    ctx.setLineDash(active ? [] : [5,5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Cross-hair at creature centre
+    if (active) {
+      ctx.beginPath();
+      ctx.moveTo(pt.x-12,pt.y); ctx.lineTo(pt.x+12,pt.y);
+      ctx.moveTo(pt.x,pt.y-12); ctx.lineTo(pt.x,pt.y+12);
+      ctx.strokeStyle='rgba(0,255,120,0.5)'; ctx.lineWidth=1; ctx.stroke();
+    }
+  });
 }
 
 // Star canvas for background
@@ -1207,6 +1275,7 @@ function startCalib() {
   _calibCurrentGaze = null;
   _calibLastGaze    = null;
   _calibLastGazeTs  = 0;
+  _calibLastFeat    = null;
   _calibHoldStart   = null;
   _calibHoldLostAt  = null;  // [FIX-3] reset hysteresis
   _calibSampling    = false;
@@ -1259,11 +1328,23 @@ function advanceCalibPoint() {
   const skipBtn=document.getElementById('calib-skip-btn');
   if(skipBtn) skipBtn.style.display=calibFailCount>=1?'inline-block':'none';
 
-  setTimeout(()=>{
-    if(calibState!=='gap') return;
+  setTimeout(() => {
+    if (calibState !== 'gap') return;
     showCalibCreature(calibIdx);
-    calibState='showing';
-    // No skip timer needed — dwell accumulator auto-completes the point
+    calibState = 'showing';
+
+    // Instruction banner
+    const cr = creatureEls[calibIdx];
+    if (cr) setCalibBanner(`👀 Look at ${cr.def.name}! The red dot should move toward them!`);
+
+    // Force-skip after 12s so it never gets permanently stuck
+    _calibSkipTimer = setTimeout(() => {
+      if (calibState !== 'done-pt') {
+        console.warn(`[GazeTrack] Force-skipping point ${calibIdx} after timeout`);
+        calibIdx++;
+        advanceCalibPoint();
+      }
+    }, CALIB_FORCE_SKIP_MS);
   }, CALIB_GAP_MS);
 }
 
@@ -1306,92 +1387,76 @@ function showCalibCreature(idx) {
   setCalibBanner(msgs[idx%msgs.length]);
 }
 
-// Per-point accumulated dwell time (ms) — fills regardless, faster when gaze near
-let _calibDwellAccum = 0;
+// Per-point dwell accumulator (ms of confirmed near-gaze)
+let _calibDwellAccum  = 0;
 let _calibLastFrameTs = 0;
 
 function runCalibLoop() {
-  calibRaf=requestAnimationFrame(()=>{
-    if(phase!=='calib-run'){calibRaf=null;return;}
+  calibRaf = requestAnimationFrame(() => {
+    if (phase !== 'calib-run') { calibRaf = null; return; }
 
-    _calibLoopT+=0.016;
-    const now=performance.now();
+    _calibLoopT += 0.016;
+    const now = performance.now();
+    const dt  = _calibLastFrameTs > 0 ? Math.min(now - _calibLastFrameTs, 100) : 16;
+    _calibLastFrameTs = now;
 
     drawCalibStars(_calibLoopT);
     updateCalibFX();
 
-    if(calibCtx){
-      const dpr=window.devicePixelRatio||1;
-      calibCtx.clearRect(0,0,calibCanvas.width/dpr,calibCanvas.height/dpr);
+    if (calibCtx) {
+      const dpr = window.devicePixelRatio || 1;
+      calibCtx.clearRect(0, 0, calibCanvas.width/dpr, calibCanvas.height/dpr);
     }
 
-    // Delta time since last frame (capped at 100ms to avoid huge jumps)
-    const dt = _calibLastFrameTs > 0 ? Math.min(now - _calibLastFrameTs, 100) : 16;
-    _calibLastFrameTs = now;
-
-    // Active gaze with bridge
     const activeGaze = _calibCurrentGaze || _calibLastGaze;
-    updateDebugDot(activeGaze);
 
-    // [FIX-8] guard against sparse array gaps
-    creatureEls.forEach((cr,i)=>{
-      if(!cr||!cr.ctx) return;
-      const pt=calibPoints[i];
-      if(!pt) return;
-      const isDone=doneCalibPoints.has(i);
-      const radius=getCalibGazeRadius(pt);
+    // Update debug overlay every frame
+    updateDebugOverlay(activeGaze, _calibLastFeat, calibIdx, calibPoints);
 
-      const gazeNear=activeGaze
-        ? Math.hypot(activeGaze.x-pt.x,activeGaze.y-pt.y)<radius
+    creatureEls.forEach((cr, i) => {
+      if (!cr || !cr.ctx) return;
+      const pt = calibPoints[i];
+      if (!pt) return;
+      const isDone   = doneCalibPoints.has(i);
+      const radius   = getCalibGazeRadius(pt);
+      const gazeNear = activeGaze
+        ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
         : false;
 
-      // ── TIMER-BASED DWELL ── only for the current active point
+      // ── DWELL FILL / DECAY — only for the active point ──
       let holdPct = 0;
-      if(i===calibIdx && !isDone) {
-        if(calibState==='showing'||calibState==='holding'||calibState==='sampling'){
-          // Accumulate time — gaze being near speeds it up
-          const speed = gazeNear ? CALIB_GAZE_SPEEDUP : 1.0;
-          _calibDwellAccum += dt * speed;
-          holdPct = Math.min(_calibDwellAccum / CALIB_AUTO_DWELL_MS, 1);
+      if (i === calibIdx && !isDone && calibState !== 'gap' && calibState !== 'done-pt') {
+        if (gazeNear) {
+          _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
+        } else {
+          // Decay slowly so brief gaze-away doesn't kill progress
+          _calibDwellAccum = Math.max(0, _calibDwellAccum - dt * CALIB_DECAY_RATE);
         }
-      }
+        holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
 
-      const isHappy=gazeNear&&!isDone;
-      drawCreatureOnCanvas(cr.ctx,cr.def,cr.size,_calibLoopT,gazeNear,holdPct,isHappy,isDone);
-
-      // ── STATE TRANSITIONS — only for current point ──
-      if(i===calibIdx&&!isDone){
-
-        // Enter holding state the first time we show
-        if(calibState==='showing'){
-          calibState='holding';
-          setCalibBanner(`👀 Look at ${cr.def.name}! Keep your eyes on them!`);
-        }
-
-        // Start sampling partway through the dwell
-        if(calibState==='holding' && holdPct >= 0.3 && !_calibSampling){
-          _calibSampling=true;
-          _calibSamplingStart=now;
-          _calibPointSamples=[];
+        // Start sampling once we're 30% through dwell
+        if (holdPct >= 0.3 && !_calibSampling) {
+          _calibSampling      = true;
+          _calibSamplingStart = now;
+          _calibPointSamples  = [];
+          calibState          = 'sampling';
           setCalibBanner(`😋 ${cr.def.name} loves it! Keep looking!`);
         }
 
-        // Complete the point when dwell is full
-        if((calibState==='holding'||calibState==='sampling') && holdPct>=1){
-          if(!_calibSparkled){
-            addCalibBurst(pt.x,pt.y,cr.def.color,36);
-            addCalibHearts(pt.x,pt.y,8);
-            addCalibStars(pt.x,pt.y,10);
-            playHappyJingle(i);
-            startConfettiLight();
-            _calibSparkled=true;
-          }
-          calibState='done-pt';
+        // Complete when dwell is full
+        if (_calibDwellAccum >= CALIB_DWELL_REQUIRED_MS && !_calibSparkled) {
+          _calibSparkled = true;
+          addCalibBurst(pt.x, pt.y, cr.def.color, 36);
+          addCalibHearts(pt.x, pt.y, 8);
+          addCalibStars(pt.x, pt.y, 10);
+          playHappyJingle(i);
+          startConfettiLight();
+          calibState = 'done-pt';
           clearTimeout(_calibSkipTimer);
           doneCalibPoints.add(i);
-          if(cr.wrap) cr.wrap.classList.add('done');
+          if (cr.wrap) cr.wrap.classList.add('done');
           updateCalibHUD();
-          const cheers=[
+          const cheers = [
             `🎉 ${cr.def.name} is SO happy! Yummy ${cr.def.hunger}!`,
             `✨ Amazing! ${cr.def.name} loves you!`,
             `🌟 Incredible! ${cr.def.name} is doing a happy dance!`,
@@ -1399,9 +1464,12 @@ function runCalibLoop() {
             `🎊 ALL FED! You saved the magical forest!`,
           ];
           setCalibBanner(cheers[i]);
-          setTimeout(()=>{calibIdx++;advanceCalibPoint();},900);
+          setTimeout(() => { calibIdx++; advanceCalibPoint(); }, 900);
         }
       }
+
+      const isHappy = gazeNear && !isDone;
+      drawCreatureOnCanvas(cr.ctx, cr.def, cr.size, _calibLoopT, gazeNear, holdPct, isHappy, isDone);
     });
 
     runCalibLoop();
@@ -1749,6 +1817,7 @@ function processingLoop(){
           const lm=res.faceLandmarks[0];
           const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
           const feat=extractFeatures(lm,mat);
+          _calibLastFeat = feat;
           const ear=feat[7];
           const isBlink=ear<0.06;
 
