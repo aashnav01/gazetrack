@@ -432,6 +432,10 @@ function pfUpdateScore() {
   if (pfState.light==='warn')   tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
   if (pfState.face==='fail')    tips.push('<strong>👤 No face:</strong> Make sure child is in frame, camera at eye level.');
   if (pfState.browser==='warn') tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
+  // Viewport height warning — critical for gaze Y accuracy
+  if (window.innerHeight < 700) {
+    tips.push(`<strong>📐 Small window (${window.innerHeight}px):</strong> Press <kbd style="background:#333;padding:1px 5px;border-radius:4px;font-size:11px;">F11</kbd> for fullscreen — gaze Y accuracy requires a tall viewport.`);
+  }
   const adv = document.getElementById('pf-advice');
   if (adv) { adv.innerHTML = tips.join('<br>'); adv.className = 'pf-advice' + (tips.length ? ' show' : ''); }
   const btn = document.getElementById('start-btn');
@@ -618,6 +622,58 @@ document.getElementById('video-input')?.addEventListener('change',e=>{
   drop?.querySelector('.chosen')?.remove();
   drop?.insertAdjacentHTML('beforeend',`<div class="chosen">✓ ${f.name}</div>`);
 });
+// ─── FULLSCREEN MANAGEMENT ───────────────────────────────────────────────────
+// Gaze Y accuracy depends directly on viewport height.
+// A browser tab with toolbars can reduce innerHeight to ~585px.
+// We request fullscreen as soon as Begin Session is clicked.
+// If the browser blocks it (some kiosk configs), we show a reminder banner.
+
+function requestFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  if (req) {
+    req.call(el).catch(() => {
+      // Browser blocked fullscreen (e.g. not triggered by user gesture, or policy)
+      // Show a soft reminder instead — don't block the session
+      showFullscreenReminder();
+    });
+  } else {
+    showFullscreenReminder();
+  }
+}
+
+function showFullscreenReminder() {
+  // Only show if viewport is suspiciously small
+  if (window.innerHeight >= 700) return;
+  const existing = document.getElementById('fs-reminder');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'fs-reminder';
+  banner.style.cssText = `
+    position:fixed; top:0; left:0; right:0; z-index:99999;
+    background:linear-gradient(90deg,#ff9f43,#e17f20);
+    color:#fff; font-family:sans-serif; font-size:14px; font-weight:700;
+    padding:10px 20px; text-align:center; letter-spacing:.02em;
+    display:flex; align-items:center; justify-content:center; gap:14px;
+  `;
+  banner.innerHTML = `
+    <span>⚠️ Small viewport detected (${window.innerHeight}px) — gaze Y accuracy may be affected.</span>
+    <button onclick="document.documentElement.requestFullscreen?.();this.parentElement.remove();"
+      style="background:#fff;color:#e17f20;border:none;border-radius:8px;padding:5px 14px;font-weight:800;cursor:pointer;font-size:13px;">
+      Go Fullscreen (F11)
+    </button>
+    <button onclick="this.parentElement.remove();"
+      style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:8px;padding:5px 14px;cursor:pointer;font-size:12px;">
+      Continue anyway
+    </button>
+  `;
+  document.body.appendChild(banner);
+}
+
+// Listen for fullscreen change so resizeCanvases() fires correctly
+document.addEventListener('fullscreenchange',     resizeCanvases);
+document.addEventListener('webkitfullscreenchange', resizeCanvases);
+
 document.getElementById('start-btn')?.addEventListener('click',()=>{
   META.pid       = document.getElementById('f-pid')?.value.trim()  || '';
   META.age       = document.getElementById('f-age')?.value          || '';
@@ -627,6 +683,8 @@ document.getElementById('start-btn')?.addEventListener('click',()=>{
   META.notes     = document.getElementById('f-notes')?.value.trim()      || '';
   cancelAnimationFrame(previewRaf);
   cancelAnimationFrame(pfRaf);
+  // Request fullscreen before loading — must be inside user gesture handler
+  requestFullscreen();
   phase='loading'; showScreen('loading'); beginSession();
 });
 initCamera();
@@ -1737,13 +1795,15 @@ function buildCSV(){
   const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️':'✓';
   const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
   const biasMeta=[
-    '# GazeTrack v16',
+    '# GazeTrack v17',
     `bias_dx=${affineBias.dx.toFixed(2)}`,`bias_dy=${affineBias.dy.toFixed(2)}`,
     `bias_sx=${affineBias.sx.toFixed(4)}`,`bias_sy=${affineBias.sy.toFixed(4)}`,
     `val_samples=${valSamples.length}`,`calib_samples=${calibSamples.length}`,
     `skip_mode=${calibSkipActive}`,
     `blinks/min=${blinkRatePerMin}`,`drowsy=${drowsyFlag}`,
-    `head_moves=${headMovementEvents}`,`face_off=${faceOffPct}%`
+    `head_moves=${headMovementEvents}`,`face_off=${faceOffPct}%`,
+    `viewport=${window.innerWidth}x${window.innerHeight}`,
+    `fullscreen=${!!document.fullscreenElement}`
   ].join(' | ');
   const lines=[biasMeta,CSV_HDR];
   const totalDuration=recordedFrames.length>0?recordedFrames[recordedFrames.length-1].t:0;
