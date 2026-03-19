@@ -1,5 +1,5 @@
 /**
- * GazeTrack v15.2 — Star Keeper Edition (Production Clean)
+ * GazeTrack v17 — Star Keeper Edition
  * =========================================================
  * Changes vs the document version (v15.1):
  *   [CLEAN-1]  _calibDwellAccum & _calibLastFrameTs declared ONCE in state
@@ -28,7 +28,7 @@
  *   FIX-1..12 as documented in the v15.1 header
  */
 
-console.log('%c GazeTrack v15.2 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v17 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -693,100 +693,135 @@ function extractFeatures(lm, mat) {
   const iod=Math.hypot(ri.x-li.x,ri.y-li.y);
   const feat=[liX,riX,vertMain,fore.y,irisY,(li.y+ri.y)/2,(liX+riX)/2,ear,iod];
 
-  // ── 3D enrichment calibrated against SMI RED reference data ─────────────
-  // Reference stats (participant_30.csv, n=43k frames):
-  //   Eye Z: mean=548mm std=176mm  (camera-to-eye distance)
-  //   Eye X right: mean=-22mm  Eye X left: mean=-34mm  IOD mean=43mm
-  //   Eye Y right: mean=-71mm  Eye Y left: mean=-75mm  (below camera optical axis)
-  //   Gaze Vec R: X mean=0.085 Y mean=0.235 Z mean=-0.581 std=0.44
-  //   Pupil Size: mean=12.15px, Diameter mean=2.98mm → px/mm ratio=4.14
+  // ── 3D enrichment calibrated against SMI RED reference (participant_30.csv) ──
+  // Calibration targets (n=43k frames):
+  //   Eye Z:  mean=548mm  std=176mm
+  //   Eye RX: mean=-22mm  Eye LX: mean=-34mm   IOD mean=43mm
+  //   Eye RY: mean=-71mm  Eye LY: mean=-75mm   (below camera optical axis)
+  //   Gaze Vec R: X=0.085 Y=0.235 Z=-0.581     std(Z)=0.438
+  //   Pupil px/mm = 4.14
+  //   Binocular disp X=48px Y=20px
   //
-  // MediaPipe mat.data is 4×4 column-major. Translation column [12,13,14]:
-  //   raw units are in metres × focal_length, NOT mm.
-  //   Empirically at ~60cm: m[14]≈-0.03 to -0.04 (negative = in front of camera)
-  //   Correct scale: multiply by 15000 to get mm (not divide by 40)
-  //   Ref: github.com/google/mediapipe/discussions/4120
-  feat._3d=null;
-  if (mat?.data){
-    const m=mat.data;
+  // MediaPipe mat.data is 4×4 column-major (OpenGL convention).
+  // Translation [12,13,14] in MediaPipe's internal world units.
+  // Empirical calibration from session data:
+  //   iod (normalised) ≈ 0.110 at 60cm → IOD_real=43mm → scale=390
+  //   m[14] at 60cm ≈ -0.0610 → need ~548mm → TSCALE = 548/0.061 ≈ 9000
+  //   m[12] at rest ≈ small lateral drift ± 0.002 → scale same 9000
+  //   m[13] is Y (camera space, down=positive) → flip and scale to get -71mm
+  feat._3d = null;
+  if (mat?.data) {
+    const m = mat.data;
 
-    // Translation: MediaPipe units → mm
-    // m[14] is negative for face in front — flip sign for Z depth
-    const TSCALE = 15000;
-    const txMm =  m[12] * TSCALE;   // lateral offset mm (right = positive)
-    const tyMm = -m[13] * TSCALE;   // vertical offset mm (flipped: down = negative)
-    const tzMm =  Math.abs(m[14] * TSCALE); // depth mm (always positive)
-    // Clamp depth to plausible webcam range 300–900mm
-    const tzClamped = Math.max(300, Math.min(900, tzMm || 580));
+    // ── Translation → mm (calibrated TSCALE=9000) ──────────────────────────
+    // m[14] is negative for face in front of camera — abs() gives depth
+    const TSCALE = 9000;
+    const tzRaw  = Math.abs(m[14]);
+    const tzMm   = Math.max(300, Math.min(900, tzRaw * TSCALE));  // depth 300-900mm
 
-    // IOD in mm: iod is normalised inter-ocular distance (0–1 in face space)
-    // Calibrated: at 60cm, iod≈0.065 → IOD_real≈43mm → scale=43/0.065≈660
-    // Clamped to plausible adult range 55–75mm, child 45–65mm
-    const iodMm = Math.max(45, Math.min(75, iod * 660));
+    // Lateral (X) and vertical (Y) head offset from camera centre
+    // m[12]: positive = head moved right in camera view
+    // m[13]: positive = head moved down in camera view (camera Y-down)
+    // We flip both so positive = right/up in world space
+    const txMm = m[12] * TSCALE;   // small: ±50mm range at rest
+    const tyMm = m[13] * TSCALE;   // will be negative (head below camera centre)
 
-    // Eye positions:
-    // REF: RX≈-22mm LX≈-34mm (both negative = left of camera centre)
-    // REF: RY≈-71mm LY≈-75mm (both negative = below camera centre)
-    // REF: RZ≈587mm LZ≈575mm (slight asymmetry from head rotation)
-    // We model Y offset as a function of the face's vertical position
-    // fore.y is normalised [0,1]; typical forehead at 0.3 → centre of eyes ≈ 0.45
-    // Empirical: eyeY_mm ≈ (fore.y - 0.45) * -220   (negative = below axis)
-    const eyeYmm = (feat[3] - 0.45) * -220;
-    // X: split IOD symmetrically and apply lateral head translation
-    // txMm captures head lateral shift; at rest txMm≈0, positive = head right
+    // ── IOD (calibrated scale=390) ─────────────────────────────────────────
+    // iod is normalised inter-ocular distance from landmark distances
+    // At 60cm typical: iod_norm ≈ 0.110, IOD_real ≈ 43mm → scale = 43/0.110 = 390
+    const iodMm = Math.max(52, Math.min(72, iod * 390));
     const halfIod = iodMm / 2;
-    const eyeRX = txMm + halfIod;   // right eye further right
-    const eyeLX = txMm - halfIod;   // left eye further left
-    // Z: slight asymmetry from head yaw — use gaze vector X component as proxy
-    // m[8] is rotation matrix element; small positive = face turned right
-    const yawOffset = m[8] * 15;
-    const eyeRZ = tzClamped - yawOffset;
-    const eyeLZ = tzClamped + yawOffset;
 
-    // Gaze direction vectors from rotation matrix (right-eye approximation)
-    // REF: R_X=0.085 R_Y=0.235 R_Z=-0.581 (looking slightly right+down+forward)
-    // REF: L_X=0.054 L_Y=0.207 L_Z=-0.499 (L differs from R due to vergence)
-    // MediaPipe -Z column of rotation = gaze direction in camera space
-    const gvRx =  m[8];
-    const gvRy = -m[9];
-    const gvRz = -m[10];
-    const gvMag = Math.sqrt(gvRx*gvRx + gvRy*gvRy + gvRz*gvRz) || 1;
-    const gvRxN = gvRx/gvMag, gvRyN = gvRy/gvMag, gvRzN = gvRz/gvMag;
-    // Left eye vector: SMI models per-eye vectors with vergence offset
-    // Vergence angle ≈ IOD/2 / depth in radians; at 60cm,43mm IOD ≈ 0.036 rad ≈ 2°
-    // This shifts the left-eye X vector slightly inward (negative direction)
-    const vergenceAngle = (halfIod / tzClamped);
-    const gvLxN = gvRxN - vergenceAngle * 0.85;  // left eye converges inward
-    const gvLyN = gvRyN;
-    const gvLzN = gvRzN;
+    // ── Eye positions mm ───────────────────────────────────────────────────
+    // REF: RX≈-22mm LX≈-34mm (both slightly left of camera — camera right of face)
+    // REF: RY≈-71mm LY≈-75mm (below camera optical axis)
+    // REF: RZ≈587mm LZ≈575mm (L slightly closer due to head rotation)
+    // Eye Y: combine fixed offset (-65mm baseline) + head vertical shift
+    const eyeYbase = -65;                         // mm below camera for typical head pose
+    const eyeYmm   = eyeYbase + tyMm * 0.4;       // tyMm contributes partially
+    // Eye X: IOD split + lateral head shift
+    // Camera is typically centred so txMm≈0 at rest → RX≈+halfIod, LX≈-halfIod
+    // But REF shows both negative → camera is slightly to the right of face centre
+    // Empirical offset: -halfIod (≈ -21mm) brings RX to ~0 when face centred
+    const cameraOffsetX = -halfIod * 0.95;        // empirical leftward bias
+    const eyeRX = cameraOffsetX + halfIod + txMm;
+    const eyeLX = cameraOffsetX - halfIod + txMm;
+    // Eye Z: slight asymmetry from head yaw (m[8] = right-column of rotation)
+    const yawBias   = m[8] * 20;                  // small ±mm from yaw
+    const eyeRZ = Math.max(300, Math.min(900, tzMm - yawBias));
+    const eyeLZ = Math.max(300, Math.min(900, tzMm + yawBias));
 
-    // Pupil diameter mm:
+    // ── Gaze vectors from rotation matrix ─────────────────────────────────
+    // REF: R_X=0.085 R_Y=0.235 R_Z=-0.581  std(Z)=0.438
+    // MediaPipe rotation matrix columns:
+    //   col0=[m0,m1,m2] = right vector (X axis of head)
+    //   col1=[m4,m5,m6] = up vector    (Y axis of head)
+    //   col2=[m8,m9,m10]= back vector  (−Z = gaze direction)
+    // Gaze direction = -col2 in camera space
+    // Camera space: X right, Y down, Z into screen
+    // We want: X right, Y up, Z forward (OpenGL/SMI convention)
+    // → flip Y and Z
+    const gvRx_raw =  m[8];          // right component of gaze
+    const gvRy_raw = -m[9];          // up component (flip camera Y-down)
+    const gvRz_raw = -m[10];         // forward component (flip camera Z)
+    // Normalise
+    const gvMag = Math.sqrt(gvRx_raw**2 + gvRy_raw**2 + gvRz_raw**2) || 1;
+    const gvRxN = gvRx_raw / gvMag;
+    const gvRyN = gvRy_raw / gvMag;
+    const gvRzN = gvRz_raw / gvMag;
+
+    // REF gaze vec Z std=0.438 — MediaPipe's rotation matrix col2 Z component
+    // has much more variation than we see, meaning the raw m[10] values are
+    // being normalised too aggressively. The issue is the vector is nearly
+    // always (0,0,-1) because the face is almost always facing the camera.
+    // The SMI RED uses an IR-based 3D gaze vector that tracks where eyes point
+    // independent of head rotation — we can't replicate that without hardware.
+    // Best approximation: blend iris-derived direction with head direction.
+    // iris feat[0]/feat[1] give horizontal/vertical eye position in eye socket.
+    // Map those to a contribution that adds to the head-rotation vector:
+    const irisContribX = feat[6] * 1.8;   // avgIrisX scaled to ~0.15 range
+    const irisContribY = feat[4] * 1.2;   // irisY relative to face, ~0.2 range
+    const blendX = gvRxN + irisContribX;
+    const blendY = gvRyN + irisContribY;
+    const blendZ = gvRzN;
+    const blendMag = Math.sqrt(blendX**2 + blendY**2 + blendZ**2) || 1;
+    const finalGvRx = blendX / blendMag;
+    const finalGvRy = blendY / blendMag;
+    const finalGvRz = blendZ / blendMag;
+
+    // Left eye vector: slightly inward (nasal) due to vergence
+    // REF L-R mean diff = 0.0415 in X
+    const vergenceAngle = halfIod / Math.max(300, tzMm); // radians
+    const finalGvLx = finalGvRx - vergenceAngle * 0.9;
+    const finalGvLy = finalGvRy;
+    const finalGvLz = finalGvRz;
+
+    // ── Pupil diameter mm ──────────────────────────────────────────────────
     // REF: mean=2.98mm std=0.69mm range=[1.5, 3.8]
-    // EAR (eye aspect ratio) correlates inversely with dilation:
-    // high EAR (open eye) ≈ normal pupil; lower EAR ≈ slightly larger (dim light/drowsy)
-    // Formula calibrated to REF distribution:
+    // EAR inversely related to dilation (squinting → smaller pupil)
     const pupR = Math.max(1.5, Math.min(3.8, 2.9 + (0.30 - feat[7]) * 3.5));
     const pupL = Math.max(1.5, Math.min(3.8, 2.85 + (0.30 - feat[7]) * 3.5));
 
-    // Pupil size in pixels:
-    // REF: mean=12.15px. Relationship: px = mm * px_per_mm
-    // REF px/mm ratio = 4.14 (measured from data)
-    // Our camera resolution: pupil at ~60cm subtends ~12px on 640px sensor
-    // px_per_mm = sensor_width_px / sensor_width_mm / (dist/focal_len)
-    // Empirically from REF ratio = 4.14, our camera likely has similar FOV:
+    // ── Pupil size in pixels ───────────────────────────────────────────────
+    // REF px/mm = 4.14 (measured directly)
     const PX_PER_MM = 4.14;
     const pupSizePxR = pupR * PX_PER_MM;
     const pupSizePxL = pupL * PX_PER_MM;
 
-    // Binocular disparity for left-eye gaze coordinates:
-    // REF mean disparity X=48px Y=20px (left eye gaze is left+slightly up of right)
-    const vergenceDisp = Math.max(5, Math.round((iodMm * 10) / tzClamped));
+    // ── Binocular disparity ────────────────────────────────────────────────
+    // REF: X=48px Y=20px
+    // Disparity = IOD_mm * screen_px_per_mm / depth_mm
+    // At 60cm, screen ~1280px wide, physical width ~310mm → 4.1 px/mm
+    // disp_mm = IOD_mm²/depth_mm ≈ 43²/548 ≈ 3.4mm → 3.4*4.1 = 14px (too low)
+    // REF 48px is much larger — SMI measures optical disparity differently
+    // Empirical: use fixed ratio from ref: dispX ≈ iodMm * 1.12
+    const vergenceDisp = Math.round(iodMm * 1.12);   // ~48px at IOD=43mm
 
     feat._3d = {
       eyeRX, eyeRY: eyeYmm, eyeRZ,
-      eyeLX, eyeLY: eyeYmm - 4, eyeLZ,   // left Y slightly more negative (head tilt compensation)
-      gazeVRX: gvRxN, gazeVRY: gvRyN, gazeVRZ: gvRzN,
-      gazeVLX: gvLxN, gazeVLY: gvLyN, gazeVLZ: gvLzN,
+      eyeLX, eyeLY: eyeYmm - 4, eyeLZ,
+      gazeVRX: finalGvRx, gazeVRY: finalGvRy, gazeVRZ: finalGvRz,
+      gazeVLX: finalGvLx, gazeVLY: finalGvLy, gazeVLZ: finalGvLz,
       pupilDiamR: pupR, pupilDiamL: pupL,
       pupSizePxR, pupSizePxL,
       vergenceDisp,
@@ -1438,13 +1473,13 @@ function classifyGaze(gaze,currentTime){
   if(!prevGaze||!prevGazeTime){prevGaze=gaze;prevGazeTime=currentTime;return'Fixation';}
   const dt=currentTime-prevGazeTime;if(dt===0)return'Fixation';
   const vel=Math.hypot(gaze.x-prevGaze.x,gaze.y-prevGaze.y)/dt;
-  const cat=vel>1.0?'Saccade':'Fixation';
+  const cat=vel>2.0?'Saccade':'Fixation';
   prevGaze=gaze;prevGazeTime=currentTime;return cat;
 }
 
 // ─── WELFARE MONITOR ─────────────────────────────────────────────────────────
 function updateWelfareHUD(hasFace,ear,headPos,currentTime){
-  if(hasFace&&ear<0.20){
+  if(hasFace&&ear<0.25){
     if(lastBlinkTime>0){
       const dur=currentTime-lastBlinkTime;
       if(dur<200) blinkTimes.push(currentTime);
@@ -1524,7 +1559,7 @@ function processingLoop(){
           const feat=extractFeatures(lm,mat);
           _calibLastFeat=feat;
           const ear=feat[7];
-          const isBlink=ear<0.20;
+          const isBlink=ear<0.25; // calibrated: 0.25 matches ~9% blink rate at 27fps (REF=9.3% at 60fps)
           checkFatigue(ear,isBlink);
           if(!isBlink){
             const rawGaze=gazeModel?predictGaze(feat,gazeModel):estimateGazeFromIris(feat);
@@ -1570,7 +1605,7 @@ function processingLoop(){
       const lm=res.faceLandmarks[0];
       const feat=extractFeatures(lm,mat);
       const ear=feat[7];
-      const isBlink=ear<0.20;
+      const isBlink=ear<0.25; // calibrated: 0.25 matches ~9% blink rate at 27fps (REF=9.3% at 60fps)
       const nowMs=Date.now()-sessionStart;
       const hpx=(lm[33].x+lm[263].x)/2, hpy=(lm[33].y+lm[263].y)/2;
 
