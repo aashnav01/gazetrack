@@ -26,7 +26,7 @@
     <div class="intake-sub">Complete the form below. Live camera feed appears below the Environment Check for positioning.</div>
   </div>
 
-  <!-- ════ POSITION ALL-CLEAR BANNER — appears when child is repositioned correctly ════ -->
+  <!-- ════ POSITION ALL-CLEAR BANNER ════ -->
   <div id="position-allclear">
     <div class="allclear-icon">✅</div>
     <div class="allclear-body">
@@ -117,7 +117,7 @@
     <div class="pf-advice" id="pf-advice"></div>
   </div>
 
-  <!-- Camera preview - below Environment Check for clinician positioning check -->
+  <!-- Camera preview -->
   <div class="cam-card">
     <div class="cam-preview-wrap">
       <video id="cam-preview" autoplay playsinline muted></video>
@@ -157,59 +157,85 @@
 
 <!-- ══════════════════════════════════════ SCREEN 3: CALIBRATION ══════════════════════════════════════ -->
 <div id="s-calib" class="screen">
+
+  <!-- Main calibration canvas (JS draws the star-field and FX on top of this) -->
   <canvas id="calib-canvas"></canvas>
+
+  <!-- Progress paw-prints — updated by JS via updateCalibHUD() -->
+  <div id="calib-progress" style="display:none;position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:60;pointer-events:none;"></div>
+
+  <!-- Calibration intro overlay — shown before child starts -->
   <div id="calib-overlay">
     <div class="calib-card" id="calib-card">
-      <h2>🐰 Follow the Bunny!</h2>
-      <p style="color:#fff;font-size:16px;font-weight:700;margin-bottom:4px;">For parents:</p>
-      <p>Sit your child in front of the screen so their face is clearly visible in the camera. Then press start and say:<br><br>
-      <strong style="color:var(--accent);font-size:15px">"Watch the bunny — wherever it goes, follow it with your eyes!"</strong><br><br>
-      The bunny will hop around for about 20 seconds. If your child looks away, the bunny will wait and make a sound until they look back.</p>
-      <button class="calib-start-btn" id="calib-start-btn">🐰 &nbsp; Start — Follow the Bunny!</button>
+
+      <!-- Title & emoji row -->
+      <h2>🌟 Meet the Magical Creatures!</h2>
+
+      <!-- Parent/clinician instruction block -->
+      <p style="color:#ccc;font-size:14px;font-weight:600;margin-bottom:4px;letter-spacing:.04em;text-transform:uppercase;">For parents &amp; clinicians:</p>
+      <p>
+        Five magical creatures — <strong style="color:#ffd700">Starby</strong>,
+        <strong style="color:#4fc3f7">Bubbles</strong>,
+        <strong style="color:#69f0ae">Fizzwick</strong>,
+        <strong style="color:#ff7043">Roary</strong> and
+        <strong style="color:#ce93d8">Shimmer</strong> — will appear one at a time
+        around the screen. Each creature plays a little jingle when it arrives and
+        bounces until it's been fed.<br><br>
+        Say to the child:<br>
+        <strong style="color:var(--accent);font-size:15px">"Can you find the magical creature? Look at it — feed it!"</strong><br><br>
+        The child just needs to <em>look at</em> each creature as it appears. The gold ring
+        around the creature fills automatically — no button needed. A celebration burst
+        plays when each creature is fed! 🎉<br><br>
+        <span style="color:#aaa;font-size:13px">If it's not working, try moving closer to the screen, improving the lighting,
+        or pressing <strong>Try Again</strong>. After two attempts a <strong>Skip</strong> option appears.</span>
+      </p>
+
+      <!-- Primary action button -->
+      <button class="calib-start-btn" id="calib-start-btn">
+        🌟 &nbsp; Start — Feed the Creatures!
+      </button>
+
+      <!-- Skip calibration button — hidden until 2 failed attempts -->
+      <button class="calib-skip-btn" id="calib-skip-btn" style="display:none;margin-top:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#aaa;font-size:13px;padding:10px 22px;border-radius:12px;cursor:pointer;">
+        ⚡ Skip calibration (approximate mode)
+      </button>
+
     </div>
   </div>
 </div>
 
 <!-- ══════════════════════════════════════ VALIDATION OVERLAY — STAR GAME ══════════════════════════════════════ -->
 <!--
-  DESIGN RATIONALE vs original dot approach:
-  ─────────────────────────────────────────
-  Original: 1200ms per dot, plain circle with arc timer — too fast and clinical for children.
-
-  New approach — "Catch the Star" game:
-  • Each star lives for 2800ms (2.3× longer) — enough for a 3-6 year old to locate and fixate
-  • Stars grow in from scale(0) with a springy bounce entrance (200ms) so the child's eye is
-    drawn to the motion naturally, then holds position for the dwell window
-  • A playful sparkle burst animates on arrival (canvas particles)
-  • A friendly sound (rising chime) plays when each star appears
-  • A large "⭐ Find the star!" prompt appears for 1.5s before the first star,
-    then a persistent badge shows "Star X of 5" so the parent knows progress
-  • Stars are larger (36px radius vs 18px) and use a warm gold colour — more visible
-  • Twinkling shimmer animation keeps the star engaging during the full dwell window
-  • Between stars there is a 600ms gap so the child's eye settles
-  ─────────────────────────────────────────
+  Shows after calibration completes. Child looks at 3 gold stars to validate
+  the gaze model before the stimulus begins.
 -->
-<div id="val-overlay">
+<div id="val-overlay" style="display:none;">
   <canvas id="val-canvas"></canvas>
   <div id="val-instruction">
     <span class="val-emoji">⭐</span>
     <h3>Find the Star!</h3>
     <p>Look at each star as it appears</p>
   </div>
-  <div id="val-badge">Star <span id="val-badge-num">1</span> of <span id="val-badge-tot">5</span></div>
+  <div id="val-badge" style="display:none;">
+    Star <span id="val-badge-num">1</span> of <span id="val-badge-tot">3</span>
+  </div>
 </div>
 
 <!-- ══════════════════════════════════════ SCREEN 4: STIMULUS ══════════════════════════════════════ -->
 <div id="s-stimulus" class="screen">
   <video id="stim-video" playsinline muted></video>
   <canvas id="gaze-canvas"></canvas>
+
   <div id="no-video">
     <div class="big">🎬</div>
     <p>No stimulus video loaded.<br>Choose a file to continue.</p>
     <label class="pick-btn" for="stim-file-input">📂 Choose Video File</label>
     <input type="file" id="stim-file-input" accept="video/*" style="display:none"/>
   </div>
-  <button id="sound-btn">🔊 Tap for Sound</button>
+
+  <button id="sound-btn" style="display:none;">🔊 Tap for Sound</button>
+
+  <!-- Session HUD — top bar -->
   <div id="hud">
     <div class="hud-l">
       <div class="hud-chip"><div class="rec-pulse"></div>&nbsp;<b id="h-timer">00:00</b></div>
@@ -219,6 +245,8 @@
     </div>
     <button class="end-btn" id="end-btn">■ End</button>
   </div>
+
+  <!-- Gaze stats panel — bottom-right -->
   <div id="stats">
     <div class="sr"><span class="sl">Face</span><span class="sv" id="st-face">—</span></div>
     <div class="sr"><span class="sl">Gaze</span><span class="sv" id="st-gaze">—</span></div>
@@ -226,6 +254,34 @@
     <div class="sr"><span class="sl">Track%</span><span class="sv" id="st-track">—</span></div>
     <div class="sr"><span class="sl">POR Y std</span><span class="sv" id="st-ystd">—</span></div>
   </div>
+
+  <!-- Child welfare monitor — bottom-left, for clinician -->
+  <div id="welfare-panel" style="
+    position:absolute; bottom:12px; left:12px;
+    background:rgba(10,8,30,0.82); border:1px solid rgba(255,255,255,0.1);
+    border-radius:12px; padding:10px 14px; font-size:12px;
+    font-family:var(--mono,monospace); color:#ccc; z-index:80;
+    min-width:160px; line-height:1.8;
+  ">
+    <div style="font-weight:700;color:#ffd700;margin-bottom:4px;">👶 Child Welfare</div>
+    <div class="wf-row">
+      <span class="wf-label" style="color:#888;margin-right:6px;">Blinks/min</span>
+      <span id="welfare-blink" class="wf-val">—</span>
+    </div>
+    <div class="wf-row">
+      <span class="wf-label" style="color:#888;margin-right:6px;">Drowsy</span>
+      <span id="welfare-drowsy" class="wf-val">—</span>
+    </div>
+    <div class="wf-row">
+      <span class="wf-label" style="color:#888;margin-right:6px;">Head moves</span>
+      <span id="welfare-head" class="wf-val">—</span>
+    </div>
+    <div class="wf-row">
+      <span class="wf-label" style="color:#888;margin-right:6px;">Face off</span>
+      <span id="welfare-faceoff" class="wf-val">—</span>
+    </div>
+  </div>
+
 </div>
 
 <!-- ══════════════════════════════════════ SCREEN 5: DONE ══════════════════════════════════════ -->
@@ -235,21 +291,22 @@
   <div class="done-stats" id="done-stats"></div>
   <div id="drive-status">
     <span id="drive-icon">☁️</span>
-    <span id="drive-msg">Connecting to Google Drive…</span>
+    <span id="drive-msg">Connecting to database…</span>
   </div>
   <div class="done-actions">
-    <button class="btn-dl" id="btn-dl" style="opacity:.45;pointer-events:none;cursor:not-allowed">⏳ Saving to Drive…</button>
+    <button class="btn-dl" id="btn-dl" style="opacity:.45;pointer-events:none;cursor:not-allowed">⏳ Saving…</button>
     <button class="btn-restart" id="btn-restart">↺ New Session</button>
   </div>
 </div>
 
-<div id="debug-panel">
+<!-- ══════════════════════════════════════ DEBUG PANEL (press D) ══════════════════════════════════════ -->
+<div id="debug-panel" style="display:none;">
   <div class="dbg-title">▶ FEATURE DEBUG (D to close)</div>
-  <div id="d-vert">vert[2]: —</div>
+  <div id="d-vert">pitch[2]: —</div>
   <div id="d-foreY">foreheadY: —</div>
   <div id="d-irisY">irisYabs: —</div>
-  <div id="d-liX">liX: —</div>
-  <div id="d-pitch-src">source: —</div>
+  <div id="d-liX">liX / riX: —</div>
+  <div id="d-pitch-src">source / EAR / IOD: —</div>
   <div id="d-py" style="color:#ffcc00">→ pred Y: —</div>
   <div id="d-px" style="color:#ffcc00">→ pred X: —</div>
   <div id="d-bias" style="color:#ff9f43">bias: not computed</div>
