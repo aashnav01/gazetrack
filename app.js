@@ -1434,7 +1434,7 @@ function startCalib() {
     if (card) {
       const h2 = card.querySelector('h2'); if (h2) h2.textContent = '📏 Move back a little!';
       const p  = card.querySelector('p');
-      if (p) p.innerHTML = 'You're sitting too close to the screen.<br><br>Ask the child to move back until their face is about <strong style="color:var(--accent)">arm's length</strong> away, then try again.';
+      if (p) p.innerHTML = 'You\'re sitting too close to the screen.<br><br>Ask the child to move back until their face is about <strong style="color:var(--accent)">arm\'s length</strong> away, then try again.';
     }
     const startBtn = document.getElementById('calib-start-btn'); if (startBtn) startBtn.textContent = '🐾 Try Again!';
     document.getElementById('calib-overlay')?.setAttribute('style','display:flex');
