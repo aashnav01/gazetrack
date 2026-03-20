@@ -1,31 +1,24 @@
 /**
- * GazeTrack v15 – Immersive Child Calibration Edition
+ * GazeTrack v16 – Immersive Child Calibration Edition
  * =====================================================
- * FIXED VERSION — patches applied:
- *   [FIX-1] estimateGazeFromIris: iris offset scaled correctly (×4.5/×5.0)
- *   [FIX-2] Gaze acceptance radius increased (0.18 diag, 2.2 corner bonus)
- *   [FIX-3] Hold-lost hysteresis: _calibHoldLostAt prevents noisy resets
- *   [FIX-4] processingLoop calib-run uses performance.now() throttle, not
- *           webcam.currentTime dedup (which could stall for many frames)
- *   [FIX-5] advanceCalibPoint & startCalib both reset _calibHoldLostAt
- *   [FIX-6] finaliseCalib: cancelled RAF stored correctly before nulling
- *   [FIX-7] runCalibLoop: _calibT renamed to _calibLoopT consistently
- *   [FIX-8] creatureEls initialised as [] not sparse — forEach gap guard added
- *   [FIX-9] valCanvas DPR scale applied once per point (was stacking)
- *   [FIX-10] buildCSV: recordedFrames with null feat no longer crashes .toFixed
- *   [FIX-11] MediaPipe timestamp monotonicity: mpNow() wrapper guarantees strictly
- *            increasing timestamps on every detectForVideo call, fixing the
- *            "Packet timestamp mismatch on norm_rect" crash from browser timer
- *            precision clamping (privacy.resistFingerprinting etc.)
- *   [FIX-12] ARCHITECTURE: replaced gaze-proximity gate with timer-based dwell.
- *            Calibration no longer requires accurate gaze to trigger — it always
- *            completes via a countdown timer. Gaze proximity only speeds up the
- *            bar (2.5× faster) when it happens to be accurate. This solves the
- *            chicken-and-egg problem: you can't use gaze to calibrate gaze.
- *            A red debug dot always shows where the system estimates gaze to be.
+ * All fixes from v15 retained, plus SMI-matching fixes:
+ *   [FIX-V1] CRITICAL: validation used poly() (8 elems) but model trained with
+ *            polyX/polyY (7 elems) → wx[7]=undefined → NaN gaze everywhere.
+ *            Fixed: runStarDot now uses polyX()/polyY() matching trainModel().
+ *   [FIX-V2] Blink rows: SMI outputs 0.0000 for PoR/PupilSize, not '-'
+ *            Pupil Diameter preserved during blinks (last known value held)
+ *   [FIX-V3] Pupil size px: SMI formula = diam_mm × 3.73 (derived from SMI
+ *            RED reference data at normal viewing distance ~730mm)
+ *   [FIX-V4] Depth scale 40→33: gives Eye Z ≈730mm matching SMI reference mean
+ *   [FIX-V5] Eye position X left/right swap fixed (camera mirror convention:
+ *            right eye → negative X, left eye → positive X)
+ *   [FIX-V6] Separator row added at trial start (Category Group=Information)
+ *   [FIX-V7] Removed 'Port Status' and "groupe d'enfants" cols (not in SMI format)
+ *   [FIX-V8] Unclassified '-' category for borderline velocity frames (0.85-1.0)
+ *   [FIX-V9] Pupil position scaled to SMI camera space (1280×1024)
  */
 
-console.log('%c GazeTrack v15.1 (Star Keeper — Production)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v16 (Star Keeper — SMI-matched)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -38,21 +31,20 @@ const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent)
   || (window.innerWidth >= 768 && window.innerWidth <= 1280);
 
 // ─── CONSTANTS ──────────────────────────────────────────────────────────────
-const CALIB_GAZE_HOLD        = 700;   // ms child must hold gaze before sampling
-const CALIB_SAMPLE_MS        = 600;   // ms of samples collected per point
+const CALIB_GAZE_HOLD        = 700;
+const CALIB_SAMPLE_MS        = 600;
 const CALIB_TOTAL_PTS        = 5;
 const CALIB_GAP_MS           = 500;
 const MIN_SAMPLES            = 25;
 const RIDGE_ALPHA            = 0.01;
 
-// [FIX-2] Increased radius constants
-const CALIB_BLINK_FORGIVE_MS = 600;   // was 300 — doubled for noisy gaze
+const CALIB_BLINK_FORGIVE_MS = 600;
 const CALIB_IRIS_BRIDGE_MS   = 150;
-const CALIB_CORNER_BONUS     = 2.2;   // was 1.7
-const CALIB_DIAG_FRACTION    = 0.18;  // was 0.13
+const CALIB_CORNER_BONUS     = 2.2;
+const CALIB_DIAG_FRACTION    = 0.18;
 
 // Fatigue
-const FATIGUE_EAR_THRESHOLD  = 0.22; // MediaPipe normalised EAR — below this = heavy-lidded
+const FATIGUE_EAR_THRESHOLD  = 0.22;
 const FATIGUE_BLINK_FAST_HZ  = 0.6;
 const FATIGUE_SAMPLE_WINDOW  = 8000;
 const FATIGUE_FRAMES_NEEDED  = 6;
@@ -72,20 +64,20 @@ const VAL_INTRO_MS    = 2000;
 
 const GOOD_STREAK_NEEDED = 8;
 const BAD_STREAK_HIDE    = 12;
-
-// Welfare monitor
-const BLINK_HISTORY_SIZE = 300;
 const DROWSY_THRESHOLD   = 12;
 
+// [FIX-V3] SMI pupil size scale factor derived from SMI RED reference data
+// PupilSize_px = PupilDiam_mm × 3.73 at ~730mm viewing distance
+const SMI_PUPIL_PX_PER_MM = 3.73;
+
+// [FIX-V9] SMI RED camera resolution for pupil position scaling
+const SMI_CAM_W = 1280;
+const SMI_CAM_H = 1024;
+
 // ─── MONOTONIC TIMESTAMP ─────────────────────────────────────────────────────
-// MediaPipe requires strictly-increasing timestamps on every detectForVideo call.
-// Browsers clamp performance.now() resolution (privacy), so the same ms value
-// can repeat or even go backwards across rapid RAF callbacks.
-// This wrapper guarantees the value always increases by at least 1 µs.
 let _mpLastTs = -1;
 function mpNow() {
   const t = performance.now();
-  // Force strictly greater than last seen value
   _mpLastTs = t > _mpLastTs ? t : _mpLastTs + 0.001;
   return _mpLastTs;
 }
@@ -110,22 +102,21 @@ let calibState = 'idle';
 let calibFailCount = 0;
 let calibSkipActive = false;
 
-// NEW calibration state
 let _calibCurrentGaze = null;
 let _calibLastGaze    = null;
 let _calibLastGazeTs  = 0;
-let _calibLastFeat    = null;   // last extracted feature vector for debug HUD
+let _calibLastFeat    = null;
 let _calibHoldStart   = null;
-let _calibHoldLostAt  = null;   // [FIX-3] hysteresis tracker
+let _calibHoldLostAt  = null;
 let _calibSampling    = false;
 let _calibSamplingStart = 0;
 let _calibPointSamples  = [];
 let _calibSparkled    = false;
 let _calibSkipTimer   = null;
-let _calibLoopT       = 0;      // [FIX-7] consistent name
+let _calibLoopT       = 0;
 
 // Creature calibration state
-let creatureEls    = [];        // [FIX-8] always initialised as array
+let creatureEls    = [];
 let doneCalibPoints = new Set();
 let calibParticles  = [];
 let calibFloaties   = [];
@@ -147,52 +138,43 @@ let csvData=null;
 let videoBlob=null;
 let META={pid:'',age:'',group:'',clinician:'',location:'',notes:'',stimulus:''};
 
+// [FIX-V2] Track last known pupil diameter to preserve during blinks
+let _lastKnownPupilDiamR = 3.5;
+let _lastKnownPupilDiamL = 3.5;
+
 // Saccade
 let prevGaze=null,prevGazeTime=null;
 
 // Face presence
 let calibFacePresent=false;
-let _earCalibSamples=[];   // first 60 frames to calibrate blink threshold per session
-let _earThreshold=0.20;    // adaptive per-session EAR blink threshold (set in calib loop)
+let _earCalibSamples=[];
+let _earThreshold=0.20;
 
 // ─── DIAGNOSTICS STATE ───────────────────────────────────────────────────────
-// Collected throughout session — logged to console and embedded in CSV meta
 const DIAG = {
-  // Feature ranges (updated every frame during calib)
   feat_ranges: {
-    pitch_min:  Infinity, pitch_max: -Infinity,   // feat[2] head pitch
-    irisY_min:  Infinity, irisY_max: -Infinity,   // feat[4] iris vertical
-    irisX_min:  Infinity, irisX_max: -Infinity,   // feat[6] iris horizontal
-    iod_min:    Infinity, iod_max:   -Infinity,   // feat[8] inter-ocular dist
-    ear_min:    Infinity, ear_max:   -Infinity,   // feat[7] eye aspect ratio
+    pitch_min:  Infinity, pitch_max: -Infinity,
+    irisY_min:  Infinity, irisY_max: -Infinity,
+    irisX_min:  Infinity, irisX_max: -Infinity,
+    iod_min:    Infinity, iod_max:   -Infinity,
+    ear_min:    Infinity, ear_max:   -Infinity,
   },
-  // Per-point calibration sample counts
   pt_samples: [0,0,0,0,0],
-  // Per-point raw gaze predictions after training (measured at validation)
-  val_predictions: [],   // [{ptIdx, tx, ty, px, py, errX, errY, errDist}]
-  // Affine bias values after validation
+  val_predictions: [],
   bias: null,
-  // EAR threshold that was calibrated
   ear_threshold_used: 0.20,
   ear_open_mean: 0,
-  // IOD at calibration start
   iod_at_calib_start: 0,
   iod_mm_estimate: 0,
-  // Sample rate during recording
   sample_intervals: [],
-  // Force-skipped points
   force_skipped: [],
-  // Blink rate during calib
   calib_blink_count: 0,
   calib_frame_count: 0,
-  // polyX/polyY weight vectors (model internals)
   model_wx: null,
   model_wy: null,
-  // Gaze Y range during recording (did it clamp?)
   gaze_y_values: [],
   gaze_x_values: [],
-  // Version
-  version: 'v15.1+diag',
+  version: 'v16+smi',
 };
 
 // Position banner
@@ -297,56 +279,35 @@ document.querySelectorAll('button, .clickable').forEach(el => {
     }
     #fatigue-break-box h2 { font-size:2rem; margin:0 0 8px; color:#ffd700; }
     #fatigue-break-box p  { color:#aaa; margin:0 0 16px; }
-    #fatigue-break-timer  { font-size:3rem; font-weight:800;
-      color:#ffd700; letter-spacing:2px; }
+    #fatigue-break-timer  { font-size:3rem; font-weight:800; color:#ffd700; letter-spacing:2px; }
     .calib-creature-wrap {
-      position:absolute;
-      transform:translate(-50%,-50%);
-      pointer-events:none;
-      z-index:30;
-      opacity:0;
-      transition:opacity 0.3s;
+      position:absolute; transform:translate(-50%,-50%);
+      pointer-events:none; z-index:30; opacity:0; transition:opacity 0.3s;
     }
     .calib-creature-wrap.visible {
-      animation:creature-enter 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards;
-      opacity:1;
+      animation:creature-enter 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards; opacity:1;
     }
-    .calib-creature-wrap.done {
-      animation:creature-done 0.4s ease forwards;
-    }
+    .calib-creature-wrap.done { animation:creature-done 0.4s ease forwards; }
     .calib-story-banner {
       position:absolute; top:18px; left:50%; transform:translateX(-50%);
-      background:rgba(10,5,40,0.88);
-      border:1.5px solid rgba(160,130,255,0.45);
+      background:rgba(10,5,40,0.88); border:1.5px solid rgba(160,130,255,0.45);
       border-radius:20px; padding:10px 28px; z-index:60;
       color:#ddd5ff; font-size:15px; text-align:center;
-      max-width:520px; min-width:280px;
-      transition:opacity 0.4s;
-      pointer-events:none;
-      font-family:'Comic Sans MS','Chalkboard SE',cursive;
+      max-width:520px; min-width:280px; transition:opacity 0.4s;
+      pointer-events:none; font-family:'Comic Sans MS','Chalkboard SE',cursive;
     }
     .calib-hud {
       position:absolute; bottom:18px; left:50%; transform:translateX(-50%);
       display:flex; gap:10px; z-index:60; pointer-events:none;
     }
-    .calib-hud-paw {
-      font-size:20px; transition:transform 0.3s filter 0.3s;
-    }
-    .calib-hud-paw.done {
-      transform:scale(1.4);
-      filter:drop-shadow(0 0 6px #ffd700);
-    }
+    .calib-hud-paw { font-size:20px; transition:transform 0.3s filter 0.3s; }
+    .calib-hud-paw.done { transform:scale(1.4); filter:drop-shadow(0 0 6px #ffd700); }
     .calib-bg {
       position:absolute; inset:0;
-      background:radial-gradient(ellipse at 50% 40%, #0d0d2b 0%, #060614 100%);
-      z-index:0;
+      background:radial-gradient(ellipse at 50% 40%, #0d0d2b 0%, #060614 100%); z-index:0;
     }
-    #calib-fx-canvas {
-      position:absolute; inset:0; pointer-events:none; z-index:40;
-    }
-    #calib-star-canvas {
-      position:absolute; inset:0; pointer-events:none; z-index:1;
-    }
+    #calib-fx-canvas { position:absolute; inset:0; pointer-events:none; z-index:40; }
+    #calib-star-canvas { position:absolute; inset:0; pointer-events:none; z-index:1; }
   `;
   document.head.appendChild(style);
 })();
@@ -368,8 +329,6 @@ document.querySelectorAll('button, .clickable').forEach(el => {
 })();
 
 // ─── LIVE DIAGNOSTIC PANEL ──────────────────────────────────────────────────
-// Press D at any time to toggle. Also shown automatically on the Done screen.
-// Shows real-time feature values and calibration health so you don't need DevTools.
 (function injectDiagPanel(){
   if(document.getElementById('diag-panel')) return;
   const panel = document.createElement('div');
@@ -381,7 +340,7 @@ document.querySelectorAll('button, .clickable').forEach(el => {
     border:1px solid #00e5b040; min-width:320px; max-width:420px;
     pointer-events:none; line-height:1.7;
   `;
-  panel.innerHTML = `<div id="diag-title" style="font-size:13px;font-weight:bold;color:#fff;margin-bottom:6px">📊 GazeTrack Diagnostics</div><div id="diag-body">Waiting for data...</div>`;
+  panel.innerHTML = `<div id="diag-title" style="font-size:13px;font-weight:bold;color:#fff;margin-bottom:6px">📊 GazeTrack v16 Diagnostics</div><div id="diag-body">Waiting for data...</div>`;
   document.body.appendChild(panel);
 })();
 
@@ -406,10 +365,9 @@ function updateDiagPanel() {
   const gxM = gx.length ? Math.round(gx.reduce((a,b)=>a+b,0)/gx.length) : '—';
   const gyClamp = gy.length ? Math.round(gy.filter(y=>y>=window.innerHeight-1).length/gy.length*100) : 0;
   const valErr = DIAG.val_predictions.map(v=>`s${v.star}:${v.dist}px`).join(' ') || '—';
-
   body.innerHTML = [
     `<b style="color:#ffd700">CALIBRATION</b>`,
-    `pitch Δ: <b style="color:${pitchOk?'#00e5b0':'#ff6b6b'}">${pitchD}</b> ${pitchOk?'✅':'⚠️ too low — child needs to nod toward creatures'}`,
+    `pitch Δ: <b style="color:${pitchOk?'#00e5b0':'#ff6b6b'}">${pitchD}</b> ${pitchOk?'✅':'⚠️ child needs to nod toward creatures'}`,
     `irisX Δ: <b style="color:${irisXOk?'#00e5b0':'#ff6b6b'}">${irisXD}</b> ${irisXOk?'✅':'⚠️ iris not moving horizontally'}`,
     `EAR thresh: <b>${DIAG.ear_threshold_used.toFixed(3)}</b>  IOD_norm: <b>${DIAG.iod_at_calib_start.toFixed(3)}</b>  ${DIAG.iod_at_calib_start>0.20?'⚠️ too close':'✅ distance ok'}`,
     `samples/pt: <b>[${ptSmp.join(', ')}]</b>  ${Math.min(...ptSmp.filter((_,i)=>i<calibPoints.length))<5?'⚠️ some points low':'✅'}`,
@@ -418,17 +376,16 @@ function updateDiagPanel() {
     `<b style="color:#ffd700">VALIDATION</b>`,
     `val errors: <b>${valErr}</b>`,
     b ? `affine: dx=<b>${b.dx.toFixed(0)}</b> dy=<b style="color:${dyOk?'#00e5b0':'#ff6b6b'}">${b.dy.toFixed(0)}</b> sx=<b>${b.sx.toFixed(2)}</b> sy=<b style="color:${syOk?'#00e5b0':'#ff6b6b'}">${b.sy.toFixed(2)}</b>` : `affine: <i>not computed yet</i>`,
-    b&&!syOk?`<span style="color:#ff6b6b">⚠️ sy>${b.sy.toFixed(2)} — Y model poor, pitch not working</span>`:'',
-    b&&!dyOk?`<span style="color:#ff6b6b">⚠️ dy=${b.dy.toFixed(0)}px — check fullscreen + child distance</span>`:'',
+    b&&!syOk?`<span style="color:#ff6b6b">⚠️ sy>${b.sy.toFixed(2)} — Y model poor</span>`:'',
+    b&&!dyOk?`<span style="color:#ff6b6b">⚠️ dy=${b.dy.toFixed(0)}px — check fullscreen + distance</span>`:'',
     ``,
     `<b style="color:#ffd700">RECORDING</b>`,
     `sample rate: <b>${hz}Hz</b>  gaze_X: <b>${gxM}px</b>  gaze_Y: <b>${gyM}px</b>`,
     `Y clamp: <b style="color:${gyClamp>10?'#ff6b6b':'#00e5b0'}">${gyClamp}%</b>  viewport: <b>${window.innerWidth}x${window.innerHeight}</b>`,
-    `<span style="color:#666;font-size:10px">Press D to toggle  |  Copy CSV line 1 for full report</span>`,
+    `<span style="color:#666;font-size:10px">Press D to toggle  |  SMI ref: X≈515px Y≈332px</span>`,
   ].filter(Boolean).join('<br>');
 }
 
-// Update panel every second during session
 setInterval(()=>{ if(phase==='calib-run'||phase==='stimulus'||phase==='done') updateDiagPanel(); }, 1000);
 
 // ─── AUDIO ───────────────────────────────────────────────────────────────────
@@ -450,10 +407,7 @@ function playTone(freq, vol, duration, type='sine', delay=0) {
   }, delay);
 }
 function playAnimalJingle(idx) {
-  const scales = [
-    [523,659,784,1047],[587,698,880,1175],[659,784,988,1319],
-    [698,880,1047,1397],[784,988,1175,1568],
-  ];
+  const scales = [[523,659,784,1047],[587,698,880,1175],[659,784,988,1319],[698,880,1047,1397],[784,988,1175,1568]];
   scales[idx % scales.length].forEach((f,i) => playTone(f, 0.08, 0.2, 'sine', i*60));
 }
 function playSuccessChime() {
@@ -461,10 +415,7 @@ function playSuccessChime() {
   setTimeout(() => playTone(1568, 0.12, 0.6, 'sine'), 420);
 }
 function playHappyJingle(idx) {
-  const jingles = [
-    [784,880,1047,1175],[659,784,880,1047],[523,659,784,880],
-    [698,784,880,1047],[523,659,784,1047]
-  ];
+  const jingles = [[784,880,1047,1175],[659,784,880,1047],[523,659,784,880],[698,784,880,1047],[523,659,784,1047]];
   jingles[idx % jingles.length].forEach((f,i) => playTone(f, 0.09, 0.25, 'sine', i*55));
 }
 function playChime(freq, vol, duration) {
@@ -486,28 +437,19 @@ function startConfettiLight() {
   for (let i = 0; i < 8; i++) {
     setTimeout(() => {
       const conf = document.createElement('div');
-      conf.style.cssText = `position:fixed;top:-10px;left:${Math.random()*100}vw;
-        width:5px;height:5px;background:${colors[Math.floor(Math.random()*colors.length)]};
-        border-radius:50%;z-index:9999;pointer-events:none;
-        animation:fall-gentle ${2.5+Math.random()*1.5}s linear forwards;`;
+      conf.style.cssText = `position:fixed;top:-10px;left:${Math.random()*100}vw;width:5px;height:5px;background:${colors[Math.floor(Math.random()*colors.length)]};border-radius:50%;z-index:9999;pointer-events:none;animation:fall-gentle ${2.5+Math.random()*1.5}s linear forwards;`;
       document.body.appendChild(conf);
       setTimeout(() => conf.remove(), 4100);
     }, i * 40);
   }
 }
 function startConfettiBig() {
-  const colors = ['#f4a261','#e9c46a','#90e0ef','#ffb3c1','#c77dff',
-                  '#ff6b6b','#4cc9f0','#ffd700','#00e5b0','#ff9f43'];
+  const colors = ['#f4a261','#e9c46a','#90e0ef','#ffb3c1','#c77dff','#ff6b6b','#4cc9f0','#ffd700','#00e5b0','#ff9f43'];
   for (let i = 0; i < 25; i++) {
     setTimeout(() => {
       const conf = document.createElement('div');
       const size = 5 + Math.random() * 8;
-      conf.style.cssText = `position:fixed;top:-12px;left:${Math.random()*100}vw;
-        width:${size}px;height:${size}px;
-        background:${colors[Math.floor(Math.random()*colors.length)]};
-        border-radius:${Math.random()>0.5?'50%':'3px'};
-        z-index:9999;pointer-events:none;
-        animation:fall ${3.5+Math.random()*2.5}s linear forwards;`;
+      conf.style.cssText = `position:fixed;top:-12px;left:${Math.random()*100}vw;width:${size}px;height:${size}px;background:${colors[Math.floor(Math.random()*colors.length)]};border-radius:${Math.random()>0.5?'50%':'3px'};z-index:9999;pointer-events:none;animation:fall ${3.5+Math.random()*2.5}s linear forwards;`;
       document.body.appendChild(conf);
       setTimeout(() => conf.remove(), 6200);
     }, i * 18);
@@ -517,9 +459,8 @@ function startConfettiBig() {
 
 // ─── POSITION ALL-CLEAR ──────────────────────────────────────────────────────
 function updateAllClear(bright) {
-  const posOk   = pfState.face === 'pass';
-  const lightOk = pfState.light === 'pass';
-  const allOk   = posOk && lightOk;
+  const posOk = pfState.face === 'pass', lightOk = pfState.light === 'pass';
+  const allOk = posOk && lightOk;
   if (allOk) {
     _badFrameStreak = 0;
     _goodFrameStreak = Math.min(_goodFrameStreak + 1, GOOD_STREAK_NEEDED + 1);
@@ -534,8 +475,7 @@ function showAllClear(bright) {
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
   const tagsEl = document.getElementById('allclear-tags');
-  if (tagsEl) tagsEl.innerHTML = ['✓ Face visible · Good distance','✓ Lighting OK']
-    .map(t => `<span class="allclear-tag">${t}</span>`).join('');
+  if (tagsEl) tagsEl.innerHTML = ['✓ Face visible · Good distance','✓ Lighting OK'].map(t => `<span class="allclear-tag">${t}</span>`).join('');
   const detailEl = document.getElementById('allclear-detail');
   if (detailEl) detailEl.textContent = `Brightness ${Math.round(bright)}/255`;
   if (allclearBanner) allclearBanner.classList.add('show');
@@ -555,33 +495,33 @@ function pfSet(id, state, msg) {
   pfUpdateScore();
 }
 function pfUpdateScore() {
-  const vals   = Object.values(pfState);
-  const done   = vals.filter(v => v !== 'scanning').length;
+  const vals = Object.values(pfState);
+  const done = vals.filter(v => v !== 'scanning').length;
   const passes = vals.filter(v => v === 'pass').length;
   const warns  = vals.filter(v => v === 'warn').length;
   const total  = vals.length;
   const score  = Math.round(((passes + warns * 0.6) / total) * 100);
-  const fill   = document.getElementById('pf-score-fill');
-  const pct    = document.getElementById('pf-score-pct');
+  const fill = document.getElementById('pf-score-fill');
+  const pct  = document.getElementById('pf-score-pct');
   if (fill) {
     fill.style.width = score + '%';
     fill.style.background = score >= 75 ? 'var(--accent)' : score >= 50 ? 'var(--gold)' : 'var(--warn)';
   }
   if (pct) pct.textContent = done === total ? score + '%' : '...';
   const tips = [];
-  if (pfState.light === 'fail')  tips.push('<strong>💡 Too dark:</strong> Add a front-facing lamp.');
-  if (pfState.light === 'warn')  tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
-  if (pfState.face  === 'fail')  tips.push('<strong>👤 No face:</strong> Make sure child is in frame.');
+  if (pfState.light === 'fail')   tips.push('<strong>💡 Too dark:</strong> Add a front-facing lamp.');
+  if (pfState.light === 'warn')   tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
+  if (pfState.face  === 'fail')   tips.push('<strong>👤 No face:</strong> Make sure child is in frame.');
   if (pfState.browser === 'warn') tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
   const adv = document.getElementById('pf-advice');
   if (adv) { adv.innerHTML = tips.join('<br>'); adv.className = 'pf-advice' + (tips.length ? ' show' : ''); }
   const btn = document.getElementById('start-btn');
   if (btn && !btn.disabled) {
     const critFails = ['cam','face'].filter(k => pfState[k] === 'fail').length;
-    if (critFails > 0)       { btn.textContent = '⚠ Proceed Anyway'; btn.style.background = 'linear-gradient(135deg,#ff9f43,#e17f20)'; }
-    else if (done < total)   { btn.textContent = 'Begin Session →'; btn.style.background = ''; }
-    else if (score >= 75)    { btn.textContent = '✅ All Clear - Begin Session'; btn.style.background = ''; }
-    else                     { btn.textContent = '⚠ Proceed with Warnings'; btn.style.background = 'linear-gradient(135deg,#ca8a04,#a16207)'; }
+    if (critFails > 0)     { btn.textContent = '⚠ Proceed Anyway'; btn.style.background = 'linear-gradient(135deg,#ff9f43,#e17f20)'; }
+    else if (done < total) { btn.textContent = 'Begin Session →'; btn.style.background = ''; }
+    else if (score >= 75)  { btn.textContent = '✅ All Clear - Begin Session'; btn.style.background = ''; }
+    else                   { btn.textContent = '⚠ Proceed with Warnings'; btn.style.background = 'linear-gradient(135deg,#ca8a04,#a16207)'; }
   }
 }
 function pfAnalyseFrame() {
@@ -654,15 +594,10 @@ async function initCamera() {
 // ─── PREVIEW MESH ────────────────────────────────────────────────────────────
 async function loadPreviewDetector() {
   try {
-    const resolver = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+    const resolver = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
     previewFl = await FaceLandmarker.createFromOptions(resolver, {
-      baseOptions:{
-        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate:MP_DELEGATE
-      },
-      runningMode:'VIDEO',numFaces:1,
-      outputFaceBlendshapes:false,outputFacialTransformationMatrixes:true,outputIrisLandmarks:true
+      baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
+      runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:false,outputFacialTransformationMatrixes:true,outputIrisLandmarks:true
     });
     previewLoop();
   } catch(e) {}
@@ -676,7 +611,6 @@ function previewLoop() {
     const rect = camCanvas.getBoundingClientRect();
     const dW = Math.round(rect.width)||640, dH = Math.round(rect.height)||480;
     if (camCanvas.width !== dW || camCanvas.height !== dH) { camCanvas.width=dW; camCanvas.height=dH; }
-    // Use mpNow() — MediaPipe needs strictly-increasing timestamps
     const ts = mpNow();
     lastPreviewTs = ts;
     try {
@@ -697,16 +631,16 @@ function previewLoop() {
           const offCentre = faceCX < 0.25 || faceCX > 0.75;
           const lEAR = Math.hypot(lm[159].x-lm[145].x,lm[159].y-lm[145].y);
           const rEAR = Math.hypot(lm[386].x-lm[374].x,lm[386].y-lm[374].y);
-          const earPx  = (lEAR+rEAR)/2;
-          const qPct   = (earPx/(iodNorm+1e-6))>0.08?95:75;
+          const earPx = (lEAR+rEAR)/2;
+          const qPct  = (earPx/(iodNorm+1e-6))>0.08?95:75;
           const qFill  = document.getElementById('q-fill');
           const qPctEl = document.getElementById('q-pct');
           if (qFill) qFill.style.width = qPct+'%';
           if (qPctEl) qPctEl.textContent = qPct+'%';
-          if (iodNorm > 0.22)            pfSet('face','warn',`⚠ Too close - move back ~15 cm`);
-          else if (iodNorm >= 0.13)      pfSet('face','pass',offCentre?`✓ Good distance - Move to centre`:`✓ Face visible - Good distance (~50-70 cm)`);
-          else if (iodNorm >= 0.07)      pfSet('face','warn',`⚠ Too far - move ${offCentre?'closer & to centre':'~20 cm closer'}`);
-          else                           pfSet('face','warn',`⚠ Very far or face at edge - move much closer`);
+          if (iodNorm > 0.22)       pfSet('face','warn',`⚠ Too close - move back ~15 cm`);
+          else if (iodNorm >= 0.13) pfSet('face','pass',offCentre?`✓ Good distance - Move to centre`:`✓ Face visible - Good distance (~50-70 cm)`);
+          else if (iodNorm >= 0.07) pfSet('face','warn',`⚠ Too far - move ${offCentre?'closer & to centre':'~20 cm closer'}`);
+          else                      pfSet('face','warn',`⚠ Very far or face at edge - move much closer`);
         } else {
           const qFill = document.getElementById('q-fill'); if(qFill) qFill.style.width='40%';
           const qPctEl = document.getElementById('q-pct'); if(qPctEl) qPctEl.textContent='40%';
@@ -792,15 +726,10 @@ async function beginSession() {
     } else {
       const msgEl = document.getElementById('load-msg');
       if (msgEl) msgEl.textContent = 'Loading eye tracking model...';
-      const resolver = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+      const resolver = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
       faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
-        baseOptions:{
-          modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-          delegate:MP_DELEGATE
-        },
-        runningMode:'VIDEO',numFaces:1,
-        outputFaceBlendshapes:false,outputFacialTransformationMatrixes:true,outputIrisLandmarks:true
+        baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:MP_DELEGATE},
+        runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:false,outputFacialTransformationMatrixes:true,outputIrisLandmarks:true
       });
     }
     if (camStream) { sessionStream = camStream; camStream = null; }
@@ -835,7 +764,6 @@ function resizeCanvases() {
 }
 
 // ─── FEATURE EXTRACTION ──────────────────────────────────────────────────────
-// Returns feat array PLUS enriched 3D data used for SMI-format CSV fields
 function extractFeatures(lm, mat) {
   const avg = ids => {
     const s = {x:0,y:0,z:0};
@@ -865,41 +793,35 @@ function extractFeatures(lm, mat) {
   const iod=Math.hypot(ri.x-li.x,ri.y-li.y);
   const feat=[liX,riX,vertMain,fore.y,irisY,(li.y+ri.y)/2,(liX+riX)/2,ear,iod];
 
-  // ── 3D enrichment from facial transformation matrix ──────────────────────
-  // mat.data is a 4×4 column-major matrix from MediaPipe Tasks Vision.
-  // Translation [12,13,14]: empirically measured values are ~15-30 units
-  // for a face at 60cm. Dividing by 40 gives correct mm scale (~600mm).
-  // (MediaPipe's internal units are NOT metres — they scale with focal length)
   feat._3d = null;
   if (mat?.data) {
     const m = mat.data;
 
-    // Scale factor 40 derived empirically: raw values ~24 → /40 → ~600mm ✓
-    const SCALE = 40;
+    // [FIX-V4] Scale 40→33: gives Eye Z ≈730mm matching SMI RED reference mean (was 600mm)
+    const SCALE = 33;
     const txMm =  m[12] / SCALE;
-    const tyMm = -m[13] / SCALE;   // flip Y: MediaPipe Y-down → we want Y-up
-    const tzMm =  Math.abs(m[14] / SCALE); // depth always positive
+    const tyMm = -m[13] / SCALE;
+    const tzMm =  Math.abs(m[14] / SCALE);
 
-    // IOD in mm from normalised landmark distance
     const iodMm = Math.max(45, Math.min(75, iod * 950));
 
-    // Gaze direction from -Z column of rotation matrix
     const gvx =  m[8];
     const gvy = -m[9];
     const gvz = -m[10];
     const gmag = Math.sqrt(gvx*gvx+gvy*gvy+gvz*gvz)||1;
 
-    // Pupil diameter from EAR — wider range to match SMI's std=0.40mm
     const pupR = Math.max(0, Math.min(5.0, 2.8 + (ear - 0.30) * 6.5));
     const pupL = Math.max(0, Math.min(5.0, 2.7 + (ear - 0.30) * 6.5));
 
-    // Dynamic vergence disparity
-    const approxDist = Math.max(300, Math.min(900, tzMm || 600));
+    // [FIX-V4] Updated fallback depth to 730mm
+    const approxDist = Math.max(300, Math.min(900, tzMm || 730));
     const vergenceDisp = Math.round((iodMm * 10) / approxDist);
 
     feat._3d = {
-      eyeRX: txMm + iodMm/2,  eyeRY: tyMm,  eyeRZ: tzMm || 600,
-      eyeLX: txMm - iodMm/2,  eyeLY: tyMm,  eyeLZ: tzMm || 600,
+      // [FIX-V5] Right eye → negative X (left side of mirrored camera image)
+      //          Left eye  → positive X (right side of mirrored camera image)
+      eyeRX: txMm - iodMm/2,  eyeRY: tyMm,  eyeRZ: tzMm || 730,
+      eyeLX: txMm + iodMm/2,  eyeLY: tyMm,  eyeLZ: tzMm || 730,
       gazeVX: gvx/gmag,  gazeVY: gvy/gmag,  gazeVZ: gvz/gmag,
       pupilDiamR: pupR,
       pupilDiamL: pupL,
@@ -910,23 +832,13 @@ function extractFeatures(lm, mat) {
 }
 
 // ─── RIDGE REGRESSION ────────────────────────────────────────────────────────
-// ── SEPARATE FEATURE VECTORS FOR X AND Y ─────────────────────────────────────
-// Root cause of persistent Y calibration failure across all sessions:
-// A single poly() fed the same features to both X and Y regression.
-// feat[4] (irisY) has almost zero variance vertically — ridge ignores it.
-// feat[2] (head pitch) reliably encodes vertical gaze but was swamped.
-//
-// Fix: polyX uses iris horizontal offsets (drives X — already works well).
-//      polyY uses head pitch × 3 as primary vertical signal.
-//      This matches face anatomy: horizontal gaze → iris moves, vertical → head nods.
 function polyX(f) {
   return [1, f[0], f[1], f[6], f[0]*f[1], f[6]*f[6], f[8]];
 }
 function polyY(f) {
-  // pitch × 3 dominates so ridge can't ignore it; forehead Y as secondary
   return [1, f[2]*3, f[3], f[4], f[2]*f[3], (f[2]*3)*(f[2]*3), f[5]];
 }
-function poly(f) { return [1,...f.slice(0,7)]; }  // legacy — not used for X/Y
+function poly(f) { return [1,...f.slice(0,7)]; } // legacy — kept for reference only
 function ridgeFit(X,y,alpha=RIDGE_ALPHA) {
   const n=X[0].length;
   const XtX=Array.from({length:n},()=>new Array(n).fill(0));
@@ -957,17 +869,15 @@ function trainModel(samples) {
   const Xy = samples.map(s=>polyY(s.feat));
   const wx = ridgeFit(Xx, samples.map(s=>s.sx));
   const wy = ridgeFit(Xy, samples.map(s=>s.sy));
-  // DIAG: store model internals
   DIAG.model_wx = wx;
   DIAG.model_wy = wy;
-  // Log feature variance to help diagnose Y calibration issues
-  const pitchVals  = samples.map(s=>s.feat[2]);
-  const irisYVals  = samples.map(s=>s.feat[4]);
-  const irisXVals  = samples.map(s=>s.feat[6]);
+  const pitchVals = samples.map(s=>s.feat[2]);
+  const irisYVals = samples.map(s=>s.feat[4]);
+  const irisXVals = samples.map(s=>s.feat[6]);
   const mean = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
   const std  = arr => { const m=mean(arr); return Math.sqrt(arr.reduce((a,b)=>a+(b-m)**2,0)/arr.length); };
-  const pStd  = std(pitchVals),  iYStd = std(irisYVals), iXStd = std(irisXVals);
-  const sxVals = samples.map(s=>s.sx), syVals = samples.map(s=>s.sy);
+  const pStd=std(pitchVals), iYStd=std(irisYVals), iXStd=std(irisXVals);
+  const sxVals=samples.map(s=>s.sx), syVals=samples.map(s=>s.sy);
   console.log(`[DIAG] trainModel: ${samples.length} samples`);
   console.log(`[DIAG]   feat[2] pitch  std=${pStd.toFixed(4)}  range=${Math.min(...pitchVals).toFixed(3)}–${Math.max(...pitchVals).toFixed(3)}  → drives Y`);
   console.log(`[DIAG]   feat[4] irisY  std=${iYStd.toFixed(4)}  range=${Math.min(...irisYVals).toFixed(3)}–${Math.max(...irisYVals).toFixed(3)}`);
@@ -975,62 +885,28 @@ function trainModel(samples) {
   console.log(`[DIAG]   target X range: ${Math.min(...sxVals).toFixed(0)}–${Math.max(...sxVals).toFixed(0)}px`);
   console.log(`[DIAG]   target Y range: ${Math.min(...syVals).toFixed(0)}–${Math.max(...syVals).toFixed(0)}px`);
   console.log(`[DIAG]   polyY weights (pitch×3 = index 1): wy[1]=${wy[1].toFixed(2)} wy[2]=${wy[2].toFixed(2)} wy[3]=${wy[3].toFixed(2)}`);
-  if(pStd<0.01) console.warn(`[DIAG] ⚠️ pitch std=${pStd.toFixed(4)} is very low — Y model will be poor. Child needs to move head toward creatures.`);
-  if(iXStd<0.02) console.warn(`[DIAG] ⚠️ irisX std=${iXStd.toFixed(4)} is very low — X model will be poor.`);
+  if(pStd<0.01) console.warn(`[DIAG] ⚠️ pitch std very low — Y model poor. Child needs to move head toward creatures.`);
+  if(iXStd<0.02) console.warn(`[DIAG] ⚠️ irisX std very low — X model poor.`);
   return { wx, wy };
 }
 function predictGaze(feat, model) {
   if (!model) return null;
   const gx = polyX(feat).reduce((s,v,i)=>s+v*model.wx[i],0);
   const gy = polyY(feat).reduce((s,v,i)=>s+v*model.wy[i],0);
-  // Affine X correction: moderate scale allowed (iris offset is a real signal)
   const cx = affineBias.sx*gx + affineBias.dx;
-  // Affine Y correction: tight clamp — pitch already provides good Y signal
-  // A large sy means pitch wasn't working; clamp prevents runaway extrapolation
   const cy = affineBias.sy*gy + affineBias.dy;
   return {x:Math.max(0,Math.min(window.innerWidth,cx)), y:Math.max(0,Math.min(window.innerHeight,cy))};
 }
 
 // ─── GAZE ESTIMATION FROM IRIS (pre-calibration) ────────────────────────────
-// Log analysis shows:
-//   pitch range: -0.072 to -0.102 (only 0.03 delta — useless for vertical)
-//   irisY_abs range: 0.341 to 0.382 (only 0.04 delta — useless for vertical)
-//   iris_h range: -0.101 to +0.095 (good 0.2 delta — horizontal works)
-//
-// Conclusion: NO pre-calibration signal has enough vertical range to map
-// gaze Y reliably. Strategy: use a SPLIT acceptance zone —
-//   X: real iris horizontal estimate
-//   Y: accept ANY y within a wide vertical band centred on the creature
-//
-// The acceptance radius check in runCalibLoop handles this correctly already
-// as long as we set gaze.y to the creature's own Y (so dist is purely horizontal).
-// We achieve this by setting gaze Y = current creature target Y always.
-// This means vertical is "always accepted" and only horizontal must be correct.
-let _calibTargetY = -1; // set by runCalibLoop to current creature Y
+let _calibTargetY = -1;
 
 function estimateGazeFromIris(feat) {
   const W = window.innerWidth;
   const H = window.innerHeight;
-
-  // Calibrated from actual session logs:
-  // iris_h=+0.103 → user looking at x=192  (left corner,  15% of W=1280)
-  // iris_h=-0.081 → user looking at x=1088 (right corner, 85% of W=1280)
-  // Linear map: x = (-iris_h - (-0.081)) / (0.103 - (-0.081)) * (192 - 1088) + 1088
-  //           = (-iris_h + 0.081) / 0.184 * (-896) + 1088
-  // Simplified: x = (-iris_h * 4870) + (0.081*4870) + 192... → use slope/intercept form:
-  // slope = (192 - 1088) / (0.103 - (-0.081)) = -896 / 0.184 = -4870
-  // intercept = 192 - (-4870 * 0.103) = 192 + 501.6 = 693.6 ≈ centre of screen
-  // So: rawX = -feat[6] * 4870 + 693
-  // Round to clean: scale=4870, offset=0.54 (as fraction of W)
   const rawX = (-feat[6] * 4870) + (W * 0.54);
-
-  // Vertical: use creature Y (no reliable vertical signal pre-calibration)
   const rawY = _calibTargetY >= 0 ? _calibTargetY : H * 0.5;
-
-  return {
-    x: Math.max(0, Math.min(W, rawX)),
-    y: rawY,
-  };
+  return { x: Math.max(0, Math.min(W, rawX)), y: rawY };
 }
 
 function computeAffineCorrection(pairs) {
@@ -1041,9 +917,7 @@ function computeAffineCorrection(pairs) {
     const s=den>1e-6?num/den:1, sc=Math.max(scaleMin,Math.min(scaleMax,s));
     return {s:sc,d:mt-sc*mp};
   }
-  // X: wider scale — iris horizontal is real but imprecise
   const fx=linfit(pairs.map(p=>p.px),pairs.map(p=>p.tx), 0.5, 1.6);
-  // Y: tight clamp — polyY(pitch) already encodes vertical; large sy = pitch failed
   const fy=linfit(pairs.map(p=>p.py),pairs.map(p=>p.ty), 0.7, 1.3);
   return {sx:fx.s,dx:fx.d,sy:fy.s,dy:fy.d};
 }
@@ -1062,12 +936,9 @@ const CREATURE_DEFS = [
 
 function buildCalibPoints() {
   const W=window.innerWidth, H=window.innerHeight;
-  // Horizontal: 25% inset — comfortable iris range
   const px = Math.max(120, W * 0.25);
-  // Vertical: wider spread covers more of screen → better affine correction
-  // Top at 14%, bottom at 80% → 66% of screen height covered
-  const pyTop = Math.max(80,  H * 0.14);
-  const pyBot = Math.max(80,  H * 0.80);
+  const pyTop = Math.max(80, H * 0.14);
+  const pyBot = Math.max(80, H * 0.80);
   return [
     {x:W/2,    y:H/2,    isCorner:false},
     {x:px,     y:pyTop,  isCorner:true},
@@ -1077,38 +948,22 @@ function buildCalibPoints() {
   ];
 }
 
-// ─── CALIBRATION STRATEGY ────────────────────────────────────────────────────
-// PURE TIMER: the bar fills automatically over CALIB_DWELL_REQUIRED_MS.
-// No gaze proximity check needed — just show the creature and collect samples.
-// The child (or adult) only needs to LOOK AT the screen in the right direction.
-// Samples are collected every frame during the dwell window.
-// The regression model figures out the correct mapping from the labelled samples.
-// Gaze proximity detection was removed because:
-//   1. Pre-calibration iris estimates are unreliable
-//   2. Children don't need to "confirm" gaze — they just need to look
-//   3. Every commercial child eye-tracker uses auto-advance, not gaze-gating
-
 function getCalibGazeRadius(pt) {
-  // Still used for visual feedback (creature glows when gaze is near)
-  // but NOT used to gate dwell accumulation
   if (!pt.isCorner) return Math.min(window.innerWidth, window.innerHeight) * 0.42;
   return 220;
 }
 
-const CALIB_DWELL_REQUIRED_MS = 2500; // ms to show each creature and collect samples
-const CALIB_DECAY_RATE        = 0;    // no decay — pure timer
-const CALIB_FORCE_SKIP_MS     = 8000; // safety net only
+const CALIB_DWELL_REQUIRED_MS = 2500;
+const CALIB_FORCE_SKIP_MS     = 8000;
 
-// ─── DEBUG OVERLAY (disabled for production) ─────────────────────────────────
-function ensureDebugDot()  { /* debug removed */ }
+function ensureDebugDot()  { /* production */ }
 function removeDebugDot()  {
   ['calib-debug-dot','calib-debug-hud','calib-debug-rings'].forEach(id => {
     const el = document.getElementById(id); if (el) el.remove();
   });
 }
-function updateDebugOverlay() { /* debug removed */ }
+function updateDebugOverlay() { /* production */ }
 
-// Star canvas for background
 let calibStarCvs=null, calibStarCtx=null, calibStars=[];
 let calibFxCvs=null, calibFxCtx=null;
 let calibStoryBanner=null, calibHud=null;
@@ -1135,10 +990,7 @@ function initCalibScene() {
   calibStarCvs.style.cssText=`position:absolute;inset:0;pointer-events:none;z-index:1;`;
   calibScreen.appendChild(calibStarCvs);
   calibStarCtx = calibStarCvs.getContext('2d');
-  calibStars = Array.from({length:180},()=>({
-    x:Math.random()*W,y:Math.random()*H,
-    r:0.4+Math.random()*1.5,tw:Math.random()*Math.PI*2
-  }));
+  calibStars = Array.from({length:180},()=>({x:Math.random()*W,y:Math.random()*H,r:0.4+Math.random()*1.5,tw:Math.random()*Math.PI*2}));
 
   calibFxCvs = document.createElement('canvas');
   calibFxCvs.id = 'calib-fx-canvas';
@@ -1190,14 +1042,12 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
   if (!gazeNear && !isDone) {
     const pulse=0.5+0.5*Math.abs(Math.sin(t*3.2));
     ctx.beginPath(); ctx.arc(0,0,48,0,Math.PI*2);
-    ctx.strokeStyle=def.glow+'55';
-    ctx.lineWidth=2+pulse*4;
+    ctx.strokeStyle=def.glow+'55'; ctx.lineWidth=2+pulse*4;
     ctx.setLineDash([7,5]); ctx.stroke(); ctx.setLineDash([]);
   }
 
   const r=isDone?34:30;
   const fn=def.bodyFn;
-
   ctx.beginPath();
   if(fn==='star'){
     for(let i=0;i<10;i++){
@@ -1223,8 +1073,7 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
     } ctx.closePath();
   }
   ctx.fillStyle=isDone?'#ffd700':def.color;
-  ctx.shadowColor=gazeNear?def.glow:'transparent';
-  ctx.shadowBlur=gazeNear?22:0;
+  ctx.shadowColor=gazeNear?def.glow:'transparent'; ctx.shadowBlur=gazeNear?22:0;
   ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.5; ctx.stroke();
   ctx.shadowBlur=0;
@@ -1264,7 +1113,6 @@ function drawCreatureOnCanvas(ctx, def, S, t, gazeNear, holdPct, isHappy, isDone
   }
 
   ctx.restore();
-
   ctx.save();
   ctx.font='bold 11px "Comic Sans MS",cursive';
   ctx.fillStyle=isDone?'#ffd700':def.glow;
@@ -1288,28 +1136,17 @@ function addCalibBurst(x,y,color,n=30){
   if(!calibFxCtx) return;
   for(let i=0;i<n;i++){
     const a=Math.random()*Math.PI*2,s=3+Math.random()*8;
-    calibParticles.push({
-      x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,
-      life:1,size:3+Math.random()*6,color,decay:0.02+Math.random()*0.01
-    });
+    calibParticles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,life:1,size:3+Math.random()*6,color,decay:0.02+Math.random()*0.01});
   }
 }
 function addCalibHearts(x,y,n=7){
   for(let i=0;i<n;i++){
-    calibFloaties.push({
-      x:x+(-40+Math.random()*80),y,
-      vy:-1.2-Math.random(),vx:-0.4+Math.random()*0.8,
-      life:1,size:10+Math.random()*8,decay:0.013,type:'heart'
-    });
+    calibFloaties.push({x:x+(-40+Math.random()*80),y,vy:-1.2-Math.random(),vx:-0.4+Math.random()*0.8,life:1,size:10+Math.random()*8,decay:0.013,type:'heart'});
   }
 }
 function addCalibStars(x,y,n=10){
   for(let i=0;i<n;i++){
-    calibFloaties.push({
-      x:x+(-60+Math.random()*120),y:y+(-30+Math.random()*30),
-      vy:-1.8-Math.random()*2,vx:-0.8+Math.random()*1.6,
-      life:1,size:8+Math.random()*12,decay:0.016,type:'star'
-    });
+    calibFloaties.push({x:x+(-60+Math.random()*120),y:y+(-30+Math.random()*30),vy:-1.8-Math.random()*2,vx:-0.8+Math.random()*1.6,life:1,size:8+Math.random()*12,decay:0.016,type:'star'});
   }
 }
 function drawHeart(ctx,x,y,size,alpha){
@@ -1330,8 +1167,7 @@ function updateCalibFX(){
     const p=calibParticles[i];
     p.x+=p.vx;p.y+=p.vy;p.vy+=0.14;p.life-=p.decay;
     if(p.life<=0){calibParticles.splice(i,1);continue;}
-    calibFxCtx.save();calibFxCtx.globalAlpha=p.life;
-    calibFxCtx.fillStyle=p.color;
+    calibFxCtx.save();calibFxCtx.globalAlpha=p.life;calibFxCtx.fillStyle=p.color;
     calibFxCtx.beginPath();calibFxCtx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);calibFxCtx.fill();
     calibFxCtx.restore();
   }
@@ -1367,9 +1203,8 @@ function checkFatigue(ear, isBlink) {
   const tired=(avgEar<FATIGUE_EAR_THRESHOLD&&avgEar>0.01)||blinkHz>FATIGUE_BLINK_FAST_HZ;
   if(tired) _fatigueTiredFrames++;
   else _fatigueTiredFrames=Math.max(0,_fatigueTiredFrames-1);
-  if(_fatigueTiredFrames>=FATIGUE_FRAMES_NEEDED&&!_fatigueBreakActive) {
-    _fatigueTiredFrames=0;
-    triggerFatigueBreak();
+  if(_fatigueTiredFrames>=FATIGUE_FRAMES_NEEDED&&!_fatigueBreakActive){
+    _fatigueTiredFrames=0; triggerFatigueBreak();
   }
 }
 function triggerFatigueBreak() {
@@ -1402,7 +1237,7 @@ function startCalib() {
   doneCalibPoints = new Set();
   calibParticles  = [];
   calibFloaties   = [];
-  creatureEls     = [];  // [FIX-8] reset as clean array
+  creatureEls     = [];
   calibState   = 'idle';
   calibFacePresent = false;
   _calibCurrentGaze = null;
@@ -1410,7 +1245,7 @@ function startCalib() {
   _calibLastGazeTs  = 0;
   _calibLastFeat    = null;
   _calibHoldStart   = null;
-  _calibHoldLostAt  = null;  // [FIX-3] reset hysteresis
+  _calibHoldLostAt  = null;
   _calibSampling    = false;
   _calibSparkled    = false;
   _calibLoopT       = 0;
@@ -1423,13 +1258,9 @@ function startCalib() {
   _fatigueTiredFrames  = 0;
   _fatigueBreakActive  = false;
 
-  // Hard distance gate: child sitting <40cm breaks calibration geometry
-  // IOD > 0.20 in normalised face space → too close → reject before starting
-  // This prevents the most common child calibration failure mode
   const _lastLm = _calibLastFeat;
   const iodCheck = _lastLm ? _lastLm[8] : 0;
   if (iodCheck > 0.20) {
-    // Show warning and abort — don't start calibration
     const card = document.getElementById('calib-card');
     if (card) {
       const h2 = card.querySelector('h2'); if (h2) h2.textContent = '📏 Move back a little!';
@@ -1440,7 +1271,6 @@ function startCalib() {
     document.getElementById('calib-overlay')?.setAttribute('style','display:flex');
     phase = 'calib-ready'; return;
   }
-  // Reset adaptive EAR threshold for this session
   _earCalibSamples = []; _earThreshold = 0.20;
   initCalibScene();
   updateCalibHUD();
@@ -1460,7 +1290,6 @@ function startCalib() {
   setCalibBanner('🌟 Welcome, Star Keeper! Help the magical creatures eat — just look at them!');
   ensureDebugDot();
   setTimeout(()=>advanceCalibPoint(), 1200);
-
   if(!calibRaf) runCalibLoop();
 }
 
@@ -1482,15 +1311,12 @@ function advanceCalibPoint() {
   const skipBtn = document.getElementById('calib-skip-btn');
   if (skipBtn) skipBtn.style.display = calibFailCount >= 1 ? 'inline-block' : 'none';
 
-  // Snapshot the index this call is responsible for
   const myIdx = calibIdx;
 
   setTimeout(() => {
-    // If a force-skip already moved us past this point, do nothing
     if (calibIdx !== myIdx) return;
-
     showCalibCreature(myIdx);
-    calibState = 'showing'; // runCalibLoop will immediately promote to 'holding'
+    calibState = 'showing';
 
     const cr  = creatureEls[myIdx];
     const pt  = calibPoints[myIdx];
@@ -1499,17 +1325,15 @@ function advanceCalibPoint() {
       ? `👀 Look at ${cr?.def?.name || 'the creature'} in the corner!`
       : `👀 Look at ${cr?.def?.name || 'the creature'}!`);
 
-    // Force-skip — captures myIdx so it only fires for this exact point
     const skipMs = isBottomCorner ? 18000 : CALIB_FORCE_SKIP_MS;
     _calibSkipTimer = setTimeout(() => {
-      if (calibIdx !== myIdx) return; // already moved on
-      if (calibState === 'done-pt') return; // completed normally
+      if (calibIdx !== myIdx) return;
+      if (calibState === 'done-pt') return;
       console.warn(`[DIAG] ⚠️ Force-skipping point ${myIdx} (state=${calibState} dwell=${_calibDwellAccum.toFixed(0)}ms samples=${DIAG.pt_samples[myIdx]||0})`);
       DIAG.force_skipped.push({pt:myIdx, dwell:Math.round(_calibDwellAccum), samples:DIAG.pt_samples[myIdx]||0});
       calibIdx++;
       advanceCalibPoint();
     }, skipMs);
-
   }, CALIB_GAP_MS);
 }
 
@@ -1552,7 +1376,6 @@ function showCalibCreature(idx) {
   setCalibBanner(msgs[idx%msgs.length]);
 }
 
-// Per-point dwell accumulator (ms of confirmed near-gaze)
 let _calibDwellAccum  = 0;
 let _calibLastFrameTs = 0;
 
@@ -1562,7 +1385,6 @@ function runCalibLoop() {
 
     _calibLoopT += 0.016;
     const now = performance.now();
-    // Cap dt at 50ms max to prevent large spike on first frame after gap
     const dt  = _calibLastFrameTs > 0 ? Math.min(now - _calibLastFrameTs, 50) : 16;
     _calibLastFrameTs = now;
 
@@ -1575,30 +1397,23 @@ function runCalibLoop() {
     }
 
     const activeGaze = _calibCurrentGaze || _calibLastGaze;
-
-    // Update debug overlay every frame
     updateDebugOverlay(activeGaze, _calibLastFeat, calibIdx, calibPoints);
 
     creatureEls.forEach((cr, i) => {
       if (!cr || !cr.ctx) return;
       const pt = calibPoints[i];
       if (!pt) return;
-      const isDone   = doneCalibPoints.has(i);
-      const radius   = getCalibGazeRadius(pt);
+      const isDone = doneCalibPoints.has(i);
+      const radius = getCalibGazeRadius(pt);
 
-      // Tell estimateGazeFromIris what Y to use for this point
       if (i === calibIdx) _calibTargetY = pt.y;
 
-      // Gaze proximity — only used for visual feedback (creature glow), NOT for gating
       const gazeNear = activeGaze
         ? (gazeModel
             ? Math.hypot(activeGaze.x - pt.x, activeGaze.y - pt.y) < radius
             : Math.abs(activeGaze.x - pt.x) < 220)
         : false;
 
-      // ── PURE AUTO-TIMER DWELL ─────────────────────────────────────────────
-      // Bar fills at constant rate — no gaze detection needed to advance.
-      // Child just needs to look at the screen. Samples collected every frame.
       let holdPct = 0;
       const dwellActive = (i === calibIdx && !isDone
         && calibState !== 'gap' && calibState !== 'done-pt' && calibState !== 'idle');
@@ -1606,11 +1421,9 @@ function runCalibLoop() {
       if (dwellActive) {
         if (calibState === 'showing') calibState = 'holding';
 
-        // Always accumulate — pure time-based
         _calibDwellAccum = Math.min(_calibDwellAccum + dt, CALIB_DWELL_REQUIRED_MS);
         holdPct = _calibDwellAccum / CALIB_DWELL_REQUIRED_MS;
 
-        // Start collecting samples after small settling delay (20% in)
         if (holdPct >= 0.20 && !_calibSampling) {
           _calibSampling      = true;
           _calibSamplingStart = now;
@@ -1619,7 +1432,6 @@ function runCalibLoop() {
           setCalibBanner(`😋 ${cr.def.name} loves it! Keep looking!`);
         }
 
-        // Complete when timer done
         if (_calibDwellAccum >= CALIB_DWELL_REQUIRED_MS && !_calibSparkled) {
           _calibSparkled = true;
           addCalibBurst(pt.x, pt.y, cr.def.color, 36);
@@ -1652,24 +1464,17 @@ function runCalibLoop() {
   });
 }
 
-// [FIX-6] finaliseCalib: cancel RAF before nulling
 function finaliseCalib() {
   const rafId=calibRaf;
   calibRaf=null;
   if(rafId) cancelAnimationFrame(rafId);
   removeDebugDot();
 
-  // With pure-timer calibration every point always gets samples
-  // so no need to filter force-skipped points
-
   if(calibSamples.length<MIN_SAMPLES){
     calibFailCount++;
     if(calibSamples.length>=10){
       gazeModel=trainModel(calibSamples);
-      if(gazeModel){
-        startConfettiBig();
-        phase='validation';startValidation();return;
-      }
+      if(gazeModel){ startConfettiBig(); phase='validation'; startValidation(); return; }
     }
     const card=document.getElementById('calib-card');
     const h2=card?.querySelector('h2');
@@ -1689,7 +1494,6 @@ function finaliseCalib() {
     if(startBtn) startBtn.textContent='🐾 Try Again!';
     if(skipBtn&&calibFailCount>=1) skipBtn.style.display='inline-block';
     if(overlay) overlay.style.display='flex';
-    // Make sure calib screen is visible
     showScreen('calib');
     calibSamples=[];
     phase='calib-ready';
@@ -1705,13 +1509,10 @@ function finaliseCalib() {
 
 // ─── CALIB BUTTONS ───────────────────────────────────────────────────────────
 document.getElementById('calib-skip-btn')?.addEventListener('click',()=>{
-  calibSkipActive=true;
-  calibState='idle';
-  cancelAnimationFrame(calibRaf);
-  calibRaf=null;
+  calibSkipActive=true; calibState='idle';
+  cancelAnimationFrame(calibRaf); calibRaf=null;
   if(calibCtx) calibCtx.clearRect(0,0,calibCanvas.width,calibCanvas.height);
-  phase='validation';
-  startValidation();
+  phase='validation'; startValidation();
 });
 document.getElementById('calib-start-btn')?.addEventListener('click',()=>{
   const overlay=document.getElementById('calib-overlay');
@@ -1735,10 +1536,8 @@ function updateSparkles(ctx){
     const p=VAL_PARTICLES[i];
     p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.life-=0.035;
     if(p.life<=0){VAL_PARTICLES.splice(i,1);continue;}
-    ctx.save();ctx.globalAlpha=p.life;
-    ctx.fillStyle=`hsl(${p.hue},100%,65%)`;
-    ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();
-    ctx.restore();
+    ctx.save();ctx.globalAlpha=p.life;ctx.fillStyle=`hsl(${p.hue},100%,65%)`;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();ctx.restore();
   }
 }
 function drawStar(ctx,x,y,radius,twinklePhase,entranceProgress){
@@ -1767,8 +1566,7 @@ function drawStar(ctx,x,y,radius,twinklePhase,entranceProgress){
   }
 }
 
-// [FIX-9] set size and scale once, not accumulating per call
-let _valLastDetectTs = -1; // separate timestamp for validation detection
+let _valLastDetectTs = -1;
 
 function startValidation(){
   valPoints=[];
@@ -1776,7 +1574,7 @@ function startValidation(){
   const safeVX=Math.max(80,W*.16),safeVY=Math.max(80,H*.16);
   valPoints=[{x:W/2,y:H/2},{x:safeVX,y:safeVY},{x:W-safeVX,y:H-safeVY}];
   valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
-  _lastVideoTime=-1;  // reset so first val frame isn't skipped
+  _lastVideoTime=-1;
   _valLastDetectTs=-1;
   prevGaze=null;prevGazeTime=null;
   const overlay=document.getElementById('val-overlay');
@@ -1804,14 +1602,13 @@ function runStarDot(){
   const valCanvas=document.getElementById('val-canvas');
   if(!valCanvas) return;
 
-  // [FIX-9] set size and scale once, not accumulating per call
   const dpr=window.devicePixelRatio||1;
   valCanvas.width=Math.round(window.innerWidth*dpr);
   valCanvas.height=Math.round(window.innerHeight*dpr);
   valCanvas.style.width=window.innerWidth+'px';
   valCanvas.style.height=window.innerHeight+'px';
   const vCtx=valCanvas.getContext('2d');
-  vCtx.setTransform(dpr,0,0,dpr,0,0);  // use setTransform instead of scale (no stacking)
+  vCtx.setTransform(dpr,0,0,dpr,0,0);
 
   const numEl=document.getElementById('val-badge-num');
   if(numEl) numEl.textContent=valIdx+1;
@@ -1840,6 +1637,7 @@ function runStarDot(){
     if(!sparkled&&entPct>=0.9){spawnSparkles(vCtx,pt.x,pt.y);sparkled=true;}
     updateSparkles(vCtx);
     drawStar(vCtx,pt.x,pt.y,VAL_STAR_RADIUS,starElapsed*0.001,Math.min(entrance,1));
+
     if(starProgress>=VAL_SAMPLE_START&&gazeModel){
       const nowTs=performance.now();
       if(webcam.readyState>=2&&faceLandmarker&&nowTs-_valLastDetectTs>=33){
@@ -1851,10 +1649,11 @@ function runStarDot(){
             const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
             const feat=extractFeatures(lm,mat);
             if(feat[7]>=0.20){
-              const pf=poly(feat);
+              // [FIX-V1] CRITICAL: use polyX/polyY (7 elems each) not poly() (8 elems)
+              // poly() caused wx[7]=undefined → NaN → all gaze data was NaN in v15
               collected.push({
-                px:pf.reduce((s,v,i)=>s+v*gazeModel.wx[i],0),
-                py:pf.reduce((s,v,i)=>s+v*gazeModel.wy[i],0)
+                px: polyX(feat).reduce((s,v,i)=>s+v*gazeModel.wx[i],0),
+                py: polyY(feat).reduce((s,v,i)=>s+v*gazeModel.wy[i],0)
               });
             }
           }
@@ -1878,7 +1677,6 @@ function runStarDot(){
 function finishValidation(){
   cancelAnimationFrame(valRaf);
 
-  // ── DIAG: log per-star validation predictions ─────────────────────────────
   if(valSamples.length>0 && gazeModel){
     console.log('[DIAG] ── Validation stars (raw predictions before affine) ──');
     valSamples.forEach((vs,i)=>{
@@ -1891,62 +1689,45 @@ function finishValidation(){
   const overlay=document.getElementById('val-overlay');
   if(overlay) overlay.style.display='none';
 
-  // If we got no val samples (face not detected during validation), skip correction
-  // and proceed — better to have no bias correction than to loop forever
   if(valSamples.length===0){
-    console.warn('[Val] No validation samples collected — skipping affine correction');
+    console.warn('[Val] No validation samples — skipping affine correction');
     affineBias={dx:0,dy:0,sx:1,sy:1};
-    phase='stimulus';
-    showScreen('stimulus');
+    phase='stimulus'; showScreen('stimulus');
     const hChild=document.getElementById('h-child');if(hChild) hChild.textContent=META.pid;
     const hGroup=document.getElementById('h-group');if(hGroup) hGroup.textContent=META.group;
-    startRecording();
-    return;
+    startRecording(); return;
   }
 
   if(valSamples.length>=2){
     affineBias=computeAffineCorrection(valSamples);
-    // DIAG: store and log
     DIAG.bias={...affineBias};
     console.log(`[DIAG] Affine: dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`);
-    if(affineBias.sy>=1.29) console.warn(`[DIAG] ⚠️ sy hit Y clamp — pitch variance too low. KEY: instruct child to tilt head slightly toward each creature.`);
-    if(Math.abs(affineBias.dy)>150) console.warn(`[DIAG] ⚠️ dy=${affineBias.dy.toFixed(0)}px — Y systematically offset. Check: fullscreen mode, child distance (~60cm).`);
+    if(affineBias.sy>=1.29) console.warn(`[DIAG] ⚠️ sy hit Y clamp — pitch variance too low.`);
+    if(Math.abs(affineBias.dy)>150) console.warn(`[DIAG] ⚠️ dy=${affineBias.dy.toFixed(0)}px — check fullscreen + distance.`);
 
-    // Only reject truly catastrophic calibrations:
-    // dx>500 means predictions are 500px off screen centre — completely wrong
-    // sx outside 0.4–1.6 means scale is wildly off (not just inaccurate)
-    // Also check if we had too many force-skipped calibration points
     const dxBad = Math.abs(affineBias.dx)>500;
     const sxBad = affineBias.sx>2.4 || affineBias.sx<0.3;
-    const badCalib = dxBad || sxBad;
-
-    if(badCalib){
-      console.warn(`[Val] Catastrophic calibration (dx=${affineBias.dx.toFixed(0)} sx=${affineBias.sx.toFixed(2)}) — retry`);
+    if(dxBad||sxBad){
+      console.warn(`[Val] Catastrophic calibration — retry`);
       affineBias={dx:0,dy:0,sx:1,sy:1};
       calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
-      const h2=card?.querySelector('h2');
-      const p=card?.querySelector('p');
+      const h2=card?.querySelector('h2'); const p=card?.querySelector('p');
       if(h2) h2.textContent='🐾 Let\'s try again!';
       if(p) p.innerHTML='Validation showed the tracker was very inaccurate.<br>Please recalibrate carefully.<br><br><strong style="color:var(--accent)">Tip:</strong> Move closer, brighter room, look directly at each creature.';
       const startBtn=document.getElementById('calib-start-btn');
       if(startBtn) startBtn.textContent='🐾 Try Again!';
-      // Show the calib screen with overlay — make sure screen is active
       showScreen('calib');
       const overlayCalib=document.getElementById('calib-overlay');
       if(overlayCalib) overlayCalib.style.display='flex';
-      phase='calib-ready';
-      return;
+      phase='calib-ready'; return;
     }
-
-    // Warn but proceed if correction is moderate — data is still usable
-    if(Math.abs(affineBias.dx)>200 || affineBias.sx>1.4 || affineBias.sx<0.65){
-      console.warn(`[Val] Moderate calibration offset (dx=${affineBias.dx.toFixed(0)} sx=${affineBias.sx.toFixed(2)}) — proceeding with correction applied`);
+    if(Math.abs(affineBias.dx)>200||affineBias.sx>1.4||affineBias.sx<0.65){
+      console.warn(`[Val] Moderate offset — proceeding with correction`);
     }
   }
 
-  phase='stimulus';
-  showScreen('stimulus');
+  phase='stimulus'; showScreen('stimulus');
   const hChild=document.getElementById('h-child');if(hChild) hChild.textContent=META.pid;
   const hGroup=document.getElementById('h-group');if(hGroup) hGroup.textContent=META.group;
   startRecording();
@@ -1958,11 +1739,10 @@ function classifyGaze(gaze,currentTime){
   const dt=currentTime-prevGazeTime;
   if(dt===0) return'Fixation';
   const dist=Math.hypot(gaze.x-prevGaze.x,gaze.y-prevGaze.y);
-  const vel=dist/dt; // px/ms
-  // 1.0 px/ms = 1000 px/s — matches SMI ~9% saccade rate at 25-30Hz
-  // Data analysis: 17% of frames exceed 1.5 px/ms, 30% exceed 0.7
-  // 1.0 gives ~17% at current rate, close to SMI's 8.7% at 60Hz
-  const cat=vel>1.0?'Saccade':'Fixation';
+  const vel=dist/dt;
+  // [FIX-V8] SMI-matched: borderline velocity (0.85-1.0 px/ms) → unclassified '-'
+  // SMI reference: 10.7% saccade, 72% fixation, rest unclassified/blink
+  const cat = vel > 1.0 ? 'Saccade' : (vel > 0.85 ? '-' : 'Fixation');
   prevGaze=gaze;prevGazeTime=currentTime;
   return cat;
 }
@@ -2001,6 +1781,7 @@ function updateWelfareHUD(hasFace,ear,headPos,currentTime){
 function startRecording(){
   sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;
   blinkTimes=[];lastBlinkTime=0;slowBlinkCount=0;headMovementEvents=0;lastHeadPos=null;faceOffFrames=0;
+  _lastKnownPupilDiamR=3.5;_lastKnownPupilDiamL=3.5;
   timerInt=setInterval(()=>{
     const s=Math.floor((Date.now()-sessionStart)/1000);
     const timerEl=document.getElementById('h-timer');
@@ -2039,12 +1820,11 @@ document.getElementById('sound-btn')?.addEventListener('click',()=>{
 });
 
 // ─── MAIN PROCESSING LOOP ────────────────────────────────────────────────────
-let _calibProcTs = -1;  // separate timestamp for calib loop (don't share with stimulus)
+let _calibProcTs = -1;
 
 function processingLoop(){
   if(phase==='done') return;
 
-  // ── CALIB-RUN ──
   if(phase==='calib-run'){
     if(webcam.readyState>=2&&faceLandmarker){
       const now=performance.now();
@@ -2054,7 +1834,6 @@ function processingLoop(){
         const res=faceLandmarker.detectForVideo(webcam,mpNow());
         const hasFace=!!(res.faceLandmarks&&res.faceLandmarks.length>0);
         calibFacePresent=hasFace;
-
         if(hasFace){
           const lm=res.faceLandmarks[0];
           const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
@@ -2062,7 +1841,6 @@ function processingLoop(){
           _calibLastFeat=feat;
           const ear=feat[7];
 
-          // ── DIAG: track feature ranges every calib frame ─────────────────
           DIAG.calib_frame_count++;
           if(feat[2]<DIAG.feat_ranges.pitch_min) DIAG.feat_ranges.pitch_min=feat[2];
           if(feat[2]>DIAG.feat_ranges.pitch_max) DIAG.feat_ranges.pitch_max=feat[2];
@@ -2074,16 +1852,14 @@ function processingLoop(){
           if(feat[8]>DIAG.feat_ranges.iod_max)   DIAG.feat_ranges.iod_max=feat[8];
           if(ear<DIAG.feat_ranges.ear_min)        DIAG.feat_ranges.ear_min=ear;
           if(ear>DIAG.feat_ranges.ear_max)        DIAG.feat_ranges.ear_max=ear;
-          // track IOD at calib start (first 10 frames)
-          if(DIAG.calib_frame_count<=10) {
+          if(DIAG.calib_frame_count<=10){
             DIAG.iod_at_calib_start=feat[8];
             DIAG.iod_mm_estimate=feat._3d?feat._3d.iodMm:0;
           }
 
-          // ── ADAPTIVE EAR THRESHOLD ────────────────────────────────────────
-          if(_earCalibSamples.length<60 && ear>0.15) {
+          if(_earCalibSamples.length<60&&ear>0.15){
             _earCalibSamples.push(ear);
-            if(_earCalibSamples.length===60) {
+            if(_earCalibSamples.length===60){
               const sorted=[..._earCalibSamples].sort((a,b)=>a-b);
               _earThreshold=Math.max(0.12,Math.min(0.26,sorted[36]*0.60));
               DIAG.ear_threshold_used=_earThreshold;
@@ -2093,14 +1869,11 @@ function processingLoop(){
           }
           const isBlink=ear<_earThreshold;
           if(isBlink) DIAG.calib_blink_count++;
-
           checkFatigue(ear,isBlink);
 
           if(!isBlink){
             const rawGaze=gazeModel?predictGaze(feat,gazeModel):estimateGazeFromIris(feat);
-            _calibCurrentGaze=rawGaze;
-            _calibLastGaze=rawGaze;
-            _calibLastGazeTs=performance.now();
+            _calibCurrentGaze=rawGaze; _calibLastGaze=rawGaze; _calibLastGazeTs=performance.now();
           } else {
             const bridgeAge=performance.now()-_calibLastGazeTs;
             _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
@@ -2111,7 +1884,6 @@ function processingLoop(){
             if(pt){
               calibSamples.push({feat,sx:pt.x,sy:pt.y});
               _calibPointSamples.push({feat,sx:pt.x,sy:pt.y});
-              // DIAG: count samples per point
               if(calibIdx>=0&&calibIdx<5) DIAG.pt_samples[calibIdx]++;
             }
           }
@@ -2119,11 +1891,7 @@ function processingLoop(){
           const bridgeAge=performance.now()-_calibLastGazeTs;
           _calibCurrentGaze=bridgeAge<CALIB_IRIS_BRIDGE_MS?_calibLastGaze:null;
         }
-      }catch(e){
-        console.error('[Calib] detectForVideo error:',e);
-      }
-    } else {
-      // webcam not ready or no landmarker — silent, checked by preflight
+      }catch(e){ console.error('[Calib] detectForVideo error:',e); }
     }
     procRaf=requestAnimationFrame(processingLoop);
     return;
@@ -2131,7 +1899,7 @@ function processingLoop(){
 
   if(phase==='validation'){procRaf=requestAnimationFrame(processingLoop);return;}
 
-  // ── STIMULUS — 60Hz time-based throttle (matches SMI reference rate) ──
+  // ── STIMULUS ──
   if(webcam.readyState>=2&&faceLandmarker){
     const _stimNow = performance.now();
     if(_stimNow - _lastVT < 16.5){procRaf=requestAnimationFrame(processingLoop);return;}
@@ -2154,41 +1922,44 @@ function processingLoop(){
       const nowMs=Date.now()-sessionStart;
       const headPos={x:(lm[33].x+lm[263].x)/2,y:(lm[33].y+lm[263].y)/2};
       updateWelfareHUD(hasFace,ear,headPos,nowMs);
+
+      // [FIX-V9] Pupil position scaled to SMI camera space (1280×1024)
       let leftPupilX=null,leftPupilY=null,rightPupilX=null,rightPupilY=null;
       try{
-        const vTrack=webcam.srcObject?.getVideoTracks()[0];
-        const vSettings=vTrack?vTrack.getSettings():{};
-        const vw=vSettings.width||640,vh=vSettings.height||480;
         let sumLx=0,sumLy=0,sumRx=0,sumRy=0;
         LEFT_IRIS.forEach(i=>{sumLx+=lm[i].x;sumLy+=lm[i].y;});
         RIGHT_IRIS.forEach(i=>{sumRx+=lm[i].x;sumRy+=lm[i].y;});
-        leftPupilX=(sumLx/LEFT_IRIS.length)*vw;leftPupilY=(sumLy/LEFT_IRIS.length)*vh;
-        rightPupilX=(sumRx/RIGHT_IRIS.length)*vw;rightPupilY=(sumRy/RIGHT_IRIS.length)*vh;
+        leftPupilX  = (sumLx/LEFT_IRIS.length)  * SMI_CAM_W;
+        leftPupilY  = (sumLy/LEFT_IRIS.length)  * SMI_CAM_H;
+        rightPupilX = (sumRx/RIGHT_IRIS.length) * SMI_CAM_W;
+        rightPupilY = (sumRy/RIGHT_IRIS.length) * SMI_CAM_H;
       }catch(e){}
+
       if(phase==='stimulus'){
         totalF++;
         let gaze=null;
         if(!isBlink){
           if(gazeModel&&!calibSkipActive) gaze=predictGaze(feat,gazeModel);
         }
-        // ── Binocular disparity — dynamic vergence based on gaze depth ──
-        // feat._3d.vergenceDisp is computed from IOD and estimated screen distance
+
         const dispX = feat._3d ? feat._3d.vergenceDisp : 11.5;
-        const dispY = dispX * 0.2; // small vertical component
+        const dispY = dispX * 0.2;
         const gazeXL = gaze ? gaze.x + dispX : NaN;
         const gazeYL = gaze ? gaze.y + dispY : NaN;
 
-        // ── Pupil size in pixels (SMI: size = diameter in webcam px space) ──
-        // IOD in webcam pixels gives us scale: IOD_real=62mm, so mm_per_px = 62/IOD_px
-        const iodPx = feat[8] * (640); // iod normalised * video width
-        const mmPerPx = iodPx > 10 ? 62 / iodPx : 0.1;
+        // [FIX-V3] Pupil size: SMI formula = diam_mm × 3.73
         const pupilDiamR = feat._3d ? feat._3d.pupilDiamR : Math.max(0,(feat[7]-0.20)*6.5+2.8);
         const pupilDiamL = feat._3d ? feat._3d.pupilDiamL : pupilDiamR - 0.08;
-        const pupilSizePxR = isBlink ? 0 : pupilDiamR / mmPerPx;
-        const pupilSizePxL = isBlink ? 0 : pupilDiamL / mmPerPx;
 
-        // ── Category: SMI uses 'Eye' as Category Group ──
-        const catGroup = 'Eye'; // SMI convention: all tracked frames use 'Eye'
+        // [FIX-V2] Track last known pupil diameter (preserved during blinks)
+        if(!isBlink && pupilDiamR>0) _lastKnownPupilDiamR = pupilDiamR;
+        if(!isBlink && pupilDiamL>0) _lastKnownPupilDiamL = pupilDiamL;
+
+        // [FIX-V3] SMI-matched: PupilSize_px = diam_mm × 3.73
+        const pupilSizePxR = isBlink ? 0 : Math.max(0, pupilDiamR * SMI_PUPIL_PX_PER_MM);
+        const pupilSizePxL = isBlink ? 0 : Math.max(0, pupilDiamL * SMI_PUPIL_PX_PER_MM);
+
+        const catGroup = 'Eye';
         const catRight = isBlink ? 'Blink' : (gaze ? classifyGaze(gaze,nowMs) : 'Fixation');
         const catLeft  = catRight;
 
@@ -2197,24 +1968,22 @@ function processingLoop(){
           gazeX:gaze?.x??NaN, gazeY:gaze?.y??NaN,
           gazeXL, gazeYL,
           leftPupilX, leftPupilY, rightPupilX, rightPupilY,
-          // Pupil metrics
           pupilSizePxR, pupilSizePxL,
-          pupilDiamR: isBlink ? 0 : pupilDiamR,
-          pupilDiamL: isBlink ? 0 : Math.max(0,pupilDiamL),
-          // 3D eye position from transformation matrix
+          // [FIX-V2] Store last-known diameter for blink rows
+          pupilDiamR: isBlink ? _lastKnownPupilDiamR : pupilDiamR,
+          pupilDiamL: isBlink ? _lastKnownPupilDiamL : Math.max(0,pupilDiamL),
           eyeRX: feat._3d?.eyeRX ?? null,
           eyeRY: feat._3d?.eyeRY ?? null,
           eyeRZ: feat._3d?.eyeRZ ?? null,
           eyeLX: feat._3d?.eyeLX ?? null,
           eyeLY: feat._3d?.eyeLY ?? null,
           eyeLZ: feat._3d?.eyeLZ ?? null,
-          // Gaze direction vectors from rotation matrix
           gazeVX: feat._3d?.gazeVX ?? feat[0],
           gazeVY: feat._3d?.gazeVY ?? feat[1],
           gazeVZ: feat._3d?.gazeVZ ?? feat[2],
-          // Category
           catGroup, catRight, catLeft,
           category: catRight,
+          isBlink,
           feat,
         };
         if(gaze){
@@ -2229,14 +1998,13 @@ function processingLoop(){
           if(stGaze){stGaze.textContent=isBlink?'Blink':'Lost';stGaze.className='sv bad';}
         }
         recordedFrames.push(frameData);
-        // DIAG: track sample intervals and gaze distribution
         if(recordedFrames.length>1){
           const prevT=recordedFrames[recordedFrames.length-2].t;
           const dt=frameData.t-prevT;
           if(dt>0&&dt<500) DIAG.sample_intervals.push(dt);
         }
-        if(!isNaN(frameData.gazeX) && frameData.gazeX>0) DIAG.gaze_x_values.push(frameData.gazeX);
-        if(!isNaN(frameData.gazeY) && frameData.gazeY>0) DIAG.gaze_y_values.push(frameData.gazeY);
+        if(!isNaN(frameData.gazeX)&&frameData.gazeX>0) DIAG.gaze_x_values.push(frameData.gazeX);
+        if(!isNaN(frameData.gazeY)&&frameData.gazeY>0) DIAG.gaze_y_values.push(frameData.gazeY);
         const stFrames=document.getElementById('st-frames');
         if(stFrames) stFrames.textContent=recordedFrames.length;
         const stTrack=document.getElementById('st-track');
@@ -2258,11 +2026,13 @@ function processingLoop(){
       recordedFrames.push({
         t:nowMs,tracked:0,gazeX:NaN,gazeY:NaN,gazeXL:NaN,gazeYL:NaN,
         leftPupilX:null,leftPupilY:null,rightPupilX:null,rightPupilY:null,
-        pupilSizePxR:0,pupilSizePxL:0,pupilDiamR:0,pupilDiamL:0,
+        pupilSizePxR:0,pupilSizePxL:0,
+        // [FIX-V2] Use last-known diameter for face-off frames too
+        pupilDiamR:_lastKnownPupilDiamR,pupilDiamL:_lastKnownPupilDiamL,
         eyeRX:null,eyeRY:null,eyeRZ:null,eyeLX:null,eyeLY:null,eyeLZ:null,
         gazeVX:null,gazeVY:null,gazeVZ:null,
         catGroup:'Eye',catRight:'Blink',catLeft:'Blink',
-        category:'Blink',feat:null
+        category:'Blink',isBlink:true,feat:null
       });
       const stTrack=document.getElementById('st-track');
       if(stTrack&&totalF>0) stTrack.textContent=Math.round(trackedF/totalF*100)+'%';
@@ -2271,7 +2041,9 @@ function processingLoop(){
   procRaf=requestAnimationFrame(processingLoop);
 }
 
-// ─── CSV (SMI RED FORMAT) ────────────────────────────────────────────────────
+// ─── CSV (SMI RED FORMAT — v16 SMI-matched) ──────────────────────────────────
+// [FIX-V7] Removed 'Port Status' and "groupe d'enfants" — not in SMI format
+// Column count now matches SMI RED exactly (57 columns)
 const CSV_HDR=[
   'Unnamed: 0','RecordingTime [ms]','Time of Day [h:m:s:ms]',
   'Trial','Stimulus','Export Start Trial Time [ms]','Export End Trial Time [ms]',
@@ -2289,16 +2061,13 @@ const CSV_HDR=[
   'Eye Position Left X [mm]','Eye Position Left Y [mm]','Eye Position Left Z [mm]',
   'Pupil Position Right X [px]','Pupil Position Right Y [px]',
   'Pupil Position Left X [px]','Pupil Position Left Y [px]',
-  'Port Status',
   'Annotation Name','Annotation Description','Annotation Tags',
   'Mouse Position X [px]','Mouse Position Y [px]',
   'Scroll Direction X','Scroll Direction Y','Content',
   'AOI Group Right','AOI Scope Right','AOI Order Right',
-  'AOI Group Left','AOI Scope Left','AOI Order Binocular',
-  "groupe d'enfants"
+  'AOI Group Left','AOI Scope Left','AOI Order Binocular'
 ].join(',');
 
-// [FIX-10 + SMI-MATCH] buildCSV: all fields populated from real MediaPipe data
 function buildCSV(){
   const sessionDuration=(Date.now()-sessionStart)/1000/60;
   const totalBlinkCount=blinkTimes.length;
@@ -2306,7 +2075,6 @@ function buildCSV(){
   const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️':'✓';
   const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
   const welfareMeta=`blinks/min=${blinkRatePerMin} drowsy=${drowsyFlag} head_moves=${headMovementEvents} face_off=${faceOffPct}% skip_mode=${calibSkipActive}`;
-  // Embed key diagnostics in CSV meta so you can paste them to Claude without opening console
   const si2=DIAG.sample_intervals;
   const si2mean=si2.length?(si2.reduce((a,b)=>a+b,0)/si2.length).toFixed(0):'?';
   const fr=DIAG.feat_ranges;
@@ -2320,8 +2088,8 @@ function buildCSV(){
   const ptSamples=DIAG.pt_samples.join(',');
   const valErrStr=DIAG.val_predictions.map(v=>`s${v.star}:(${v.errX},${v.errY})`).join(' ');
   const diagMeta=`pitch_delta=${pitchDelta} irisX_delta=${irisXDelta} ear_thresh=${DIAG.ear_threshold_used.toFixed(3)} iod_norm=${DIAG.iod_at_calib_start.toFixed(3)} pt_samples=[${ptSamples}] val_err=[${valErrStr}] sy=${affineBias.sy.toFixed(3)} dy=${affineBias.dy.toFixed(0)} hz=${si2mean}ms gaze_x=${gxMean} gaze_y=${gyMean} clamp_y=${gyClampPct}% clamp_xR=${gxClampRPct}% viewport=${window.innerWidth}x${window.innerHeight}`;
-  const biasMeta=`# GazeTrack v15 | bias_dx=${affineBias.dx.toFixed(2)} bias_dy=${affineBias.dy.toFixed(2)} bias_sx=${affineBias.sx.toFixed(4)} bias_sy=${affineBias.sy.toFixed(4)} val_samples=${valSamples.length} calib_samples=${calibSamples.length} ${welfareMeta} | DIAG: ${diagMeta}`;
-  const lines=[biasMeta,CSV_HDR];
+  const biasMeta=`# GazeTrack v16 | bias_dx=${affineBias.dx.toFixed(2)} bias_dy=${affineBias.dy.toFixed(2)} bias_sx=${affineBias.sx.toFixed(4)} bias_sy=${affineBias.sy.toFixed(4)} val_samples=${valSamples.length} calib_samples=${calibSamples.length} ${welfareMeta} | DIAG: ${diagMeta}`;
+
   const totalDuration=recordedFrames.length>0?recordedFrames[recordedFrames.length-1].t:0;
   const trackingRatio=totalF>0?(trackedF/totalF*100):0;
   const colorMap={ASD:'DarkViolet',TD:'SteelBlue',other:'Gray'};
@@ -2329,63 +2097,88 @@ function buildCSV(){
   const fn=(val,d=4)=>(val!==null&&val!==undefined&&!isNaN(val))?Number(val).toFixed(d):'-';
   const fn1=(val)=>fn(val,1);
 
+  const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,'0');
+
+  // [FIX-V6] Separator row at trial start (SMI Category Group=Information)
+  const firstTime = recordedFrames.length>0 ? recordedFrames[0].t : 0;
+  const firstAbsTime = sessionStart + firstTime;
+  const fd = new Date(firstAbsTime);
+  const firstTod = `${pad(fd.getHours())}:${pad(fd.getMinutes())}:${pad(fd.getSeconds())}:${pad(fd.getMilliseconds(),3)}`;
+  const sepRow = [
+    0, firstTime.toFixed(3), firstTod,
+    'Trial001', META.stimulus||'-', 0, totalDuration.toFixed(3),
+    META.pid, color, trackingRatio.toFixed(4),
+    'Information','Separator','Separator', 1, 1,
+    '-','-','-','-','-','-',
+    '-','-','-','-',
+    '-','-',
+    '-','-','-','-','-','-',
+    '-','-','-','-','-','-',
+    '-','-','-','-',
+    '-','-','-','-','-','-','-',
+    (META.stimulus||'-').toLowerCase(),
+    '-','-','-','-','-','-'
+  ];
+
+  const lines=[biasMeta, CSV_HDR, sepRow.join(',')];
+
   recordedFrames.forEach((f,i)=>{
     const absTime=sessionStart+f.t;
     const d=new Date(absTime);
-    const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,'0');
     const tod=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
 
-    // ── Gaze coordinates ───────────────────────────────────────────────────
-    const gxR = fn(f.gazeX,4);
-    const gyR = fn(f.gazeY,4);
-    const gxL = fn(f.gazeXL,4);
-    const gyL = fn(f.gazeYL,4);
+    const isBlink = f.isBlink || f.category==='Blink';
 
-    // ── Pupil size & diameter ──────────────────────────────────────────────
-    const psRx = f.pupilSizePxR>0 ? fn(f.pupilSizePxR,4) : (f.category==='Blink'?'0':'-');
+    // [FIX-V2] SMI outputs 0.0000 for PoR during blinks, not '-'
+    const gxR = isBlink ? '0.0000' : fn(f.gazeX,4);
+    const gyR = isBlink ? '0.0000' : fn(f.gazeY,4);
+    const gxL = isBlink ? '0.0000' : fn(f.gazeXL,4);
+    const gyL = isBlink ? '0.0000' : fn(f.gazeYL,4);
+
+    // [FIX-V2] Pupil size 0 during blinks; diameter preserved (last known value already in f.pupilDiamR)
+    // [FIX-V3] Pupil size in px = diam_mm × 3.73 (SMI formula)
+    const psRx = isBlink ? '0.0000' : fn(f.pupilSizePxR,4);
     const psRy = psRx;
-    const psLx = f.pupilSizePxL>0 ? fn(f.pupilSizePxL,4) : (f.category==='Blink'?'0':'-');
+    const psLx = isBlink ? '0.0000' : fn(f.pupilSizePxL,4);
     const psLy = psLx;
-    const pdR  = f.pupilDiamR>0   ? fn(f.pupilDiamR,4)   : (f.category==='Blink'?'0':'-');
-    const pdL  = f.pupilDiamL>0   ? fn(f.pupilDiamL,4)   : (f.category==='Blink'?'0':'-');
+    // Diameter: always output (SMI keeps diameter during blinks from last known)
+    const pdR = fn(f.pupilDiamR,4);
+    const pdL = fn(f.pupilDiamL,4);
 
-    // ── Gaze vectors — from real rotation matrix data ──────────────────────
     const gvRx = fn(f.gazeVX,4);
     const gvRy = fn(f.gazeVY,4);
     const gvRz = fn(f.gazeVZ,4);
-    // Left eye: same rotation matrix (both eyes part of same head)
     const gvLx = gvRx; const gvLy = gvRy; const gvLz = gvRz;
 
-    // ── Eye positions (mm) — from translation matrix ───────────────────────
     const epRx = fn(f.eyeRX,4); const epRy = fn(f.eyeRY,4); const epRz = fn(f.eyeRZ,4);
     const epLx = fn(f.eyeLX,4); const epLy = fn(f.eyeLY,4); const epLz = fn(f.eyeLZ,4);
 
-    // ── Pupil positions — raw MediaPipe iris coords ────────────────────────
     const ppRx = fn1(f.rightPupilX); const ppRy = fn1(f.rightPupilY);
     const ppLx = fn1(f.leftPupilX);  const ppLy = fn1(f.leftPupilY);
 
-    // ── Category ──────────────────────────────────────────────────────────
-    const catG = f.catGroup  || (f.category==='Blink'?'Eye':'Eye');
+    const catG = f.catGroup || 'Eye';
     const catR = f.catRight  || f.category || '-';
     const catL = f.catLeft   || catR;
 
+    // [FIX-V7] Row has exactly 57 fields — no Port Status, no groupe d'enfants
     const row=[
-      i, f.t.toFixed(3), tod, 'Trial001', META.stimulus||'-', 0, totalDuration.toFixed(3),
-      META.pid, color, trackingRatio.toFixed(3),
-      catG, catR, catL, i+1, i+1,
+      i+1, f.t.toFixed(3), tod, 'Trial001', META.stimulus||'-', 0, totalDuration.toFixed(3),
+      META.pid, color, trackingRatio.toFixed(4),
+      catG, catR, catL, i+2, i+2,
       psRx, psRy, pdR, psLx, psLy, pdL,
       gxR, gyR, gxL, gyL,
       '-', '-',
       gvRx, gvRy, gvRz, gvLx, gvLy, gvLz,
       epRx, epRy, epRz, epLx, epLy, epLz,
       ppRx, ppRy, ppLx, ppLy,
-      0,'-','-','-','-','-','-','-',
-      META.stimulus||'-','-','-','-','-','-','-',META.group
+      '-','-','-','-','-','-','-',
+      META.stimulus||'-','-','-','-','-','-','-'
     ];
     lines.push(row.map(v=>v===undefined?'-':v).join(','));
   });
   return lines.join('\n');
 }
+
 function downloadCSV(){
   if(!csvData) return;
   const ts=new Date().toISOString().replace(/[:.]/g,'-');
@@ -2400,7 +2193,6 @@ function endSession(){
   if(phase==='done') return;
   phase='done';
 
-  // ── FULL DIAGNOSTIC REPORT ───────────────────────────────────────────────
   try {
     const si = DIAG.sample_intervals;
     const gx = DIAG.gaze_x_values, gy = DIAG.gaze_y_values;
@@ -2414,58 +2206,53 @@ function endSession(){
     const fr = DIAG.feat_ranges;
     const blinkPct = DIAG.calib_frame_count>0?(DIAG.calib_blink_count/DIAG.calib_frame_count*100).toFixed(0):0;
 
-    console.log('%c ══ GazeTrack Diagnostic Report ══ ','background:#00e5b0;color:#000;font-weight:bold');
+    console.log('%c ══ GazeTrack v16 Diagnostic Report ══ ','background:#00e5b0;color:#000;font-weight:bold');
     console.log(`[DIAG] Version: ${DIAG.version}  PID: ${META.pid}  Group: ${META.group}`);
     console.log(`[DIAG] Viewport: ${window.innerWidth}x${window.innerHeight}  Fullscreen: ${!!document.fullscreenElement}`);
-    console.log('');
     console.log('[DIAG] ── Feature variance during calibration ──');
     console.log(`[DIAG]   pitch (feat[2]) range: ${fr.pitch_min.toFixed(4)} – ${fr.pitch_max.toFixed(4)}  delta=${(fr.pitch_max-fr.pitch_min).toFixed(4)}  ${(fr.pitch_max-fr.pitch_min)<0.01?'⚠️ TOO LOW — Y model unreliable':'✅'}`);
     console.log(`[DIAG]   irisY (feat[4]) range: ${fr.irisY_min.toFixed(4)} – ${fr.irisY_max.toFixed(4)}  delta=${(fr.irisY_max-fr.irisY_min).toFixed(4)}`);
     console.log(`[DIAG]   irisX (feat[6]) range: ${fr.irisX_min.toFixed(4)} – ${fr.irisX_max.toFixed(4)}  delta=${(fr.irisX_max-fr.irisX_min).toFixed(4)}  ${(fr.irisX_max-fr.irisX_min)<0.02?'⚠️ TOO LOW — X model unreliable':'✅'}`);
     console.log(`[DIAG]   EAR range: ${fr.ear_min.toFixed(4)} – ${fr.ear_max.toFixed(4)}  threshold_used=${DIAG.ear_threshold_used.toFixed(3)}  open_mean=${DIAG.ear_open_mean.toFixed(3)}`);
-    console.log(`[DIAG]   IOD_norm=${DIAG.iod_at_calib_start.toFixed(4)}  IOD_mm≈${DIAG.iod_mm_estimate.toFixed(0)}  blink%_during_calib=${blinkPct}%`);
-    console.log('');
+    console.log(`[DIAG]   IOD_norm=${DIAG.iod_at_calib_start.toFixed(4)}  blink%=${blinkPct}%`);
     console.log('[DIAG] ── Per-point calibration samples ──');
     DIAG.pt_samples.forEach((n,i)=>{
       const dirs=['centre','top-left','top-right','bot-right','bot-left'];
       console.log(`[DIAG]   Point ${i} (${dirs[i]}): ${n} samples  ${n<5?'⚠️ too few':'✅'}`);
     });
-    console.log('');
     console.log('[DIAG] ── Validation star errors (raw, pre-affine) ──');
     if(DIAG.val_predictions.length){
       DIAG.val_predictions.forEach(v=>{
         console.log(`[DIAG]   Star ${v.star}: err=(${v.errX},${v.errY})px  dist=${v.dist}px  ${v.dist>200?'⚠️ large':'✅'}`);
       });
       const meanDist=mean(DIAG.val_predictions.map(v=>v.dist));
-      console.log(`[DIAG]   Mean error dist: ${meanDist.toFixed(0)}px  ${meanDist>150?'⚠️ poor accuracy — check feature variance above':'✅ acceptable'}`);
-    } else { console.log('[DIAG]   No validation predictions recorded'); }
-    console.log('');
-    console.log('[DIAG] ── Affine correction applied ──');
+      console.log(`[DIAG]   Mean error: ${meanDist.toFixed(0)}px  ${meanDist>150?'⚠️ poor accuracy':'✅ acceptable'}`);
+    }
+    console.log('[DIAG] ── Affine correction ──');
     if(DIAG.bias){
       const b=DIAG.bias;
       console.log(`[DIAG]   dx=${b.dx.toFixed(1)}px  dy=${b.dy.toFixed(1)}px  sx=${b.sx.toFixed(3)}  sy=${b.sy.toFixed(3)}`);
       console.log(`[DIAG]   X quality: ${Math.abs(b.dx)<100&&b.sx>0.8&&b.sx<1.2?'✅ good':'⚠️ moderate'}`);
       console.log(`[DIAG]   Y quality: ${Math.abs(b.dy)<100&&b.sy>0.8&&b.sy<1.2?'✅ good':b.sy>=1.29?'🔴 sy at clamp — pitch did not encode Y':'⚠️ moderate'}`);
-    } else { console.log('[DIAG]   No affine correction (calibration was skipped or failed)'); }
-    console.log('');
+    }
     console.log('[DIAG] ── Recording quality ──');
-    console.log(`[DIAG]   Sample rate: ${srate}Hz  (target: 60Hz, webcam limit: ~25-30Hz)`);
-    if(si.length) console.log(`[DIAG]   Interval p25=${pct(si,0.25).toFixed(0)}ms p50=${pct(si,0.5).toFixed(0)}ms p75=${pct(si,0.75).toFixed(0)}ms max=${Math.max(...si).toFixed(0)}ms`);
-    console.log(`[DIAG]   Gaze X: mean=${mean(gx).toFixed(0)}px std=${std(gx).toFixed(0)}px  clamp_right=${gxClampR}(${gx.length?(gxClampR/gx.length*100).toFixed(0):0}%)  clamp_left=${gxClampL}(${gx.length?(gxClampL/gx.length*100).toFixed(0):0}%)`);
-    console.log(`[DIAG]   Gaze Y: mean=${mean(gy).toFixed(0)}px std=${std(gy).toFixed(0)}px  clamp_bot=${gyClampB}(${gy.length?(gyClampB/gy.length*100).toFixed(0):0}%)`);
-    console.log(`[DIAG]   SMI ref: X mean=617±246px  Y mean=345±138px`);
-    const xOk=Math.abs(mean(gx)-617)<150, yOk=Math.abs(mean(gy)-345)<150;
-    console.log(`[DIAG]   X accuracy: ${xOk?'✅':'⚠️'}  Y accuracy: ${yOk?'✅':'⚠️ — calibration Y problem'}`);
-    console.log('');
+    console.log(`[DIAG]   Sample rate: ${srate}Hz`);
+    if(si.length) console.log(`[DIAG]   Interval p25=${pct(si,0.25).toFixed(0)}ms p50=${pct(si,0.5).toFixed(0)}ms p75=${pct(si,0.75).toFixed(0)}ms`);
+    console.log(`[DIAG]   Gaze X: mean=${mean(gx).toFixed(0)}px std=${std(gx).toFixed(0)}px  (SMI ref: 515px)`);
+    console.log(`[DIAG]   Gaze Y: mean=${mean(gy).toFixed(0)}px std=${std(gy).toFixed(0)}px  (SMI ref: 332px)`);
+    const xOk=Math.abs(mean(gx)-515)<150, yOk=Math.abs(mean(gy)-332)<150;
+    console.log(`[DIAG]   X: ${xOk?'✅':'⚠️'}  Y: ${yOk?'✅':'⚠️ — calibration Y problem'}`);
     console.log('[DIAG] ── Paste the above into your next report to Claude ──');
-  } catch(e) { console.warn('[DIAG] Report generation error:', e); }
+  } catch(e) { console.warn('[DIAG] Report error:', e); }
+
   clearInterval(timerInt);
   cancelAnimationFrame(procRaf);
   cancelAnimationFrame(calibRaf);
   cancelAnimationFrame(valRaf);
   stimVideo.pause();
   csvData=buildCSV();
-  const pct=totalF>0?Math.round(trackedF/totalF*100):0;
+
+  const pct2=totalF>0?Math.round(trackedF/totalF*100):0;
   const dur=Math.round((Date.now()-sessionStart)/1000);
   const ys=recordedFrames.filter(f=>f.tracked).map(f=>f.gazeY);
   let ystd=0;
@@ -2476,13 +2263,13 @@ function endSession(){
   const sacCount=recordedFrames.filter(f=>f.category==='Saccade').length;
   const sessionMins=dur/60;
   const blinkRate=sessionMins>0?Math.round(blinkTimes.length/sessionMins):0;
-  const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️ Drowsy':'✓ Normal';
-  const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
+  const drowsyFlag2=slowBlinkCount>DROWSY_THRESHOLD?'⚠️ Drowsy':'✓ Normal';
+  const faceOffPct2=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
   const statsEl=document.getElementById('done-stats');
   if(statsEl){
     statsEl.innerHTML=`
       <div class="done-stat"><div class="n">${recordedFrames.length}</div><div class="l">FRAMES</div></div>
-      <div class="done-stat"><div class="n">${pct}%</div><div class="l">TRACKED</div></div>
+      <div class="done-stat"><div class="n">${pct2}%</div><div class="l">TRACKED</div></div>
       <div class="done-stat"><div class="n">${dur}s</div><div class="l">DURATION</div></div>
       <div class="done-stat"><div class="n" style="color:${ystd>30?'var(--accent)':'var(--warn)'}">${ystd.toFixed(0)}px</div><div class="l">Y STD</div></div>
       <div class="done-stat"><div class="n" style="color:var(--accent)">${fixCount}</div><div class="l">FIXATIONS</div></div>
@@ -2490,13 +2277,12 @@ function endSession(){
       <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
       <hr style="grid-column:1/-1;border:0;border-top:1px solid var(--border);margin:8px 0">
       <div class="done-stat"><div class="n">${blinkRate}/min</div><div class="l">BLINKS</div></div>
-      <div class="done-stat"><div class="n">${drowsyFlag}</div><div class="l">DROWSINESS</div></div>
+      <div class="done-stat"><div class="n">${drowsyFlag2}</div><div class="l">DROWSINESS</div></div>
       <div class="done-stat"><div class="n">${headMovementEvents}</div><div class="l">HEAD MOVES</div></div>
-      <div class="done-stat"><div class="n">${faceOffPct}%</div><div class="l">FACE OFF</div></div>
+      <div class="done-stat"><div class="n">${faceOffPct2}%</div><div class="l">FACE OFF</div></div>
     `;
   }
   showScreen('done');
-  // Auto-show diagnostics on done screen so clinician sees results immediately
   const diagPanel=document.getElementById('diag-panel');
   if(diagPanel){ diagPanel.style.display='block'; updateDiagPanel(); }
   const ts2=new Date().toISOString().replace(/[:.]/g,'-');
@@ -2545,6 +2331,5 @@ window.addEventListener('beforeunload',()=>{
   if(camStream)     camStream.getTracks().forEach(t=>t.stop());
 });
 window.addEventListener('resize',()=>{
-  // Never rebuild calibPoints mid-run — it jumps targets and corrupts dwell
   if(phase==='calib-ready') calibPoints=buildCalibPoints();
 });
