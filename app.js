@@ -1,4 +1,3 @@
-
 console.log('%c GazeTrack v21 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
@@ -1098,8 +1097,7 @@ function startCalib(){
   _calibSampling=false;   _calibSparkled=false; _calibLoopT=0;
   _calibDwellAccum=0;     _calibLastFrameTs=0;  _calibProcTs=-1;  // [CLEAN-1,2]
   _calibTargetY=window.innerHeight/2;                              // [CLEAN-3]
-  _fatigueEarHistory=[];  _fatigueBlinkTimes=[];
-  _fatigueTiredFrames=0;  _fatigueBreakActive=false;
+
   _earCalibSamples=[];    _earThreshold=0.22;   // reset adaptive EAR per attempt
   affineBias={dx:0,dy:0,sx:1,sy:1};             // reset bias — no inherited bad correction
 
