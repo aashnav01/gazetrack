@@ -18,7 +18,7 @@
  *   [FIX-V9] Pupil position scaled to SMI camera space (1280×1024)
  */
 
-console.log('%c GazeTrack v16 (Star Keeper — SMI-matched)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v16.1 (Star Keeper — SMI-matched, fullscreen-enforced)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -174,7 +174,7 @@ const DIAG = {
   model_wy: null,
   gaze_y_values: [],
   gaze_x_values: [],
-  version: 'v16+smi',
+  version: 'v16.1+fullscreen',
 };
 
 // Position banner
@@ -356,7 +356,7 @@ function updateDiagPanel() {
   const irisXOk = (fr.irisX_max-fr.irisX_min)>0.02;
   const ptSmp = DIAG.pt_samples;
   const b = DIAG.bias;
-  const syOk = b && b.sy < 1.2;
+  const syOk = b && b.sy < 1.4;
   const dyOk = b && Math.abs(b.dy) < 100;
   const si = DIAG.sample_intervals;
   const hz = si.length ? (1000/(si.reduce((a,b)=>a+b,0)/si.length)).toFixed(0) : '—';
@@ -918,7 +918,7 @@ function computeAffineCorrection(pairs) {
     return {s:sc,d:mt-sc*mp};
   }
   const fx=linfit(pairs.map(p=>p.px),pairs.map(p=>p.tx), 0.5, 1.6);
-  const fy=linfit(pairs.map(p=>p.py),pairs.map(p=>p.ty), 0.7, 1.3);
+  const fy=linfit(pairs.map(p=>p.py),pairs.map(p=>p.ty), 0.6, 1.6);
   return {sx:fx.s,dx:fx.d,sy:fy.s,dy:fy.d};
 }
 
@@ -1519,7 +1519,13 @@ document.getElementById('calib-start-btn')?.addEventListener('click',()=>{
   if(overlay) overlay.style.display='none';
   calibSamples=[];
   phase='calib-run';
-  startCalib();
+  // [FIX-A] Force fullscreen before calibration — viewport must be maximised
+  // dy=-183px in testing was caused entirely by running in a browser toolbar window
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen().catch(()=>{}).finally(()=>{ setTimeout(startCalib, 150); });
+  } else {
+    startCalib();
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1572,7 +1578,7 @@ function startValidation(){
   valPoints=[];
   const W=window.innerWidth,H=window.innerHeight;
   const safeVX=Math.max(80,W*.16),safeVY=Math.max(80,H*.16);
-  valPoints=[{x:W/2,y:H/2},{x:safeVX,y:safeVY},{x:W-safeVX,y:H-safeVY}];
+  valPoints=[{x:W/2,y:H/2},{x:safeVX,y:safeVY},{x:W-safeVX,y:H-safeVY},{x:W/2,y:H-safeVY}];
   valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
   _lastVideoTime=-1;
   _valLastDetectTs=-1;
@@ -1612,7 +1618,7 @@ function runStarDot(){
 
   const numEl=document.getElementById('val-badge-num');
   if(numEl) numEl.textContent=valIdx+1;
-  const notes=[523,659,784];
+  const notes=[523,659,784,880];
   playChime(notes[valIdx%notes.length],0.12,0.5);
   const collected=[];
   const ENTRANCE_MS=450;
@@ -1702,7 +1708,8 @@ function finishValidation(){
     affineBias=computeAffineCorrection(valSamples);
     DIAG.bias={...affineBias};
     console.log(`[DIAG] Affine: dx=${affineBias.dx.toFixed(1)} dy=${affineBias.dy.toFixed(1)} sx=${affineBias.sx.toFixed(3)} sy=${affineBias.sy.toFixed(3)}`);
-    if(affineBias.sy>=1.29) console.warn(`[DIAG] ⚠️ sy hit Y clamp — pitch variance too low.`);
+    if(affineBias.sy>=1.59) console.warn(`[DIAG] ⚠️ sy hit Y clamp (1.6) — pitch variance too low. Run fullscreen.`);
+    else if(affineBias.sy>=1.29) console.warn(`[DIAG] ⚠️ sy=${affineBias.sy.toFixed(2)} — moderate Y correction applied.`);
     if(Math.abs(affineBias.dy)>150) console.warn(`[DIAG] ⚠️ dy=${affineBias.dy.toFixed(0)}px — check fullscreen + distance.`);
 
     const dxBad = Math.abs(affineBias.dx)>500;
