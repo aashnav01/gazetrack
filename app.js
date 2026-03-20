@@ -1,34 +1,5 @@
-/**
- * GazeTrack v20 — Star Keeper Edition
- * =========================================================
- * Changes vs the document version (v15.1):
- *   [CLEAN-1]  _calibDwellAccum & _calibLastFrameTs declared ONCE in state
- *              block (removed duplicate let declarations before runCalibLoop)
- *   [CLEAN-2]  _calibProcTs declared ONCE at top of state block
- *   [CLEAN-3]  _calibTargetY initialised to H/2 so estimateGazeFromIris never
- *              returns NaN Y before first creature appears
- *   [CLEAN-4]  advanceCalibPoint now also resets _calibLastFrameTs to 0 so
- *              the dt cap on the first frame of each new point is enforced
- *   [CLEAN-5]  buildCSV: gazeVX/VY/VZ from feat explicitly guarded against
- *              null (no-face frames pushed null feat — fn() handles it but
- *              clarified for readability)
- *   [CLEAN-6]  processingLoop: stimulus block uses time-based throttle
- *              (16.5 ms ≈ 60 Hz) stored in separate _stimLastTs variable so
- *              it never interferes with _lastVT used in calib
- *   [CLEAN-7]  All DOM getElementById calls guarded with ?. or early-return
- *              so missing HTML elements never crash the loop
- *   [CLEAN-8]  Welfare monitor totalF guard: updateWelfareHUD only called
- *              when phase==='stimulus' to avoid counting calib frames
- *   [CLEAN-9]  startCalib now calls resizeCanvases() to guarantee canvas
- *              dimensions match window before drawing begins
- *   [CLEAN-10] val-canvas: getContext called once and cached per runStarDot
- *              call (was called multiple times per frame through frame())
- *
- * Inherited fixes from v15.1 (all preserved):
- *   FIX-1..12 as documented in the v15.1 header
- */
 
-console.log('%c GazeTrack v20 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v21 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -53,11 +24,6 @@ const CALIB_CORNER_BONUS       = 2.2;
 const CALIB_DIAG_FRACTION      = 0.18;
 const CALIB_DWELL_REQUIRED_MS  = 2500;
 const CALIB_FORCE_SKIP_MS      = 8000;
-const FATIGUE_EAR_THRESHOLD    = 0.22;
-const FATIGUE_BLINK_FAST_HZ    = 0.6;
-const FATIGUE_SAMPLE_WINDOW    = 8000;
-const FATIGUE_FRAMES_NEEDED    = 6;
-const BREAK_DURATION_MS        = 10000;
 const LEFT_IRIS  = [468,469,470,471];
 const RIGHT_IRIS = [473,474,475,476];
 const L_CORNERS  = [33,133];
@@ -69,8 +35,6 @@ const VAL_SAMPLE_START= 0.60;
 const VAL_INTRO_MS    = 2000;
 const GOOD_STREAK_NEEDED = 8;
 const BAD_STREAK_HIDE    = 12;
-const BLINK_HISTORY_SIZE = 300;
-const DROWSY_THRESHOLD   = 12;
 const MONGO_API_URL = 'https://gazetrack-api.onrender.com/api/sessions';
 
 // ─── MONOTONIC TIMESTAMP ─────────────────────────────────────────────────────
@@ -126,10 +90,6 @@ let calibParticles  = [];
 let calibFloaties   = [];
 
 // Fatigue
-let _fatigueEarHistory  = [];
-let _fatigueBlinkTimes  = [];
-let _fatigueTiredFrames = 0;
-let _fatigueBreakActive = false;
 
 // Validation
 let valPoints=[],valIdx=0,valSamples=[],valRaf=null,valStart=0;
@@ -176,12 +136,6 @@ const pfState={cam:'scanning',face:'scanning',light:'scanning',browser:'scanning
 let pfRaf=null,_pfSamples=[],_pfThrottle=0,_pfCanvas=null,_pfCtx=null;
 
 // Welfare
-let blinkTimes=[];
-let lastBlinkTime=0;
-let slowBlinkCount=0;
-let headMovementEvents=0;
-let lastHeadPos=null;
-let faceOffFrames=0;
 
 // Star background
 let calibStarCvs=null,calibStarCtx=null,calibStars=[];
@@ -295,19 +249,7 @@ if (IS_TABLET) {
 })();
 
 // ─── FATIGUE BREAK OVERLAY ───────────────────────────────────────────────────
-(function injectBreakOverlay(){
-  if (document.getElementById('fatigue-break-overlay')) return;
-  const brk = document.createElement('div');
-  brk.id = 'fatigue-break-overlay';
-  brk.innerHTML = `
-    <div id="fatigue-break-box">
-      <div style="font-size:2.5rem;margin-bottom:8px">😴 ⭐ 😴</div>
-      <h2>Great job! Rest your eyes</h2>
-      <p>You're doing SO well! The magical creatures<br>are waiting for you to come back!</p>
-      <div id="fatigue-break-timer">10</div>
-    </div>`;
-  document.body.appendChild(brk);
-})();
+
 
 // ─── AUDIO ───────────────────────────────────────────────────────────────────
 let _audioCtx = null;
@@ -1140,41 +1082,6 @@ function drawCalibStars(t){
   });
 }
 
-// ─── FATIGUE DETECTION ────────────────────────────────────────────────────────
-function checkFatigue(ear,isBlink){
-  const now=performance.now();
-  if(isBlink) _fatigueBlinkTimes.push(now);
-  _fatigueBlinkTimes=_fatigueBlinkTimes.filter(t=>now-t<FATIGUE_SAMPLE_WINDOW);
-  _fatigueEarHistory.push(ear);
-  if(_fatigueEarHistory.length>30) _fatigueEarHistory.shift();
-  const avgEar=_fatigueEarHistory.reduce((a,b)=>a+b,0)/_fatigueEarHistory.length;
-  const blinkHz=_fatigueBlinkTimes.length/(FATIGUE_SAMPLE_WINDOW/1000);
-  const tired=(avgEar<FATIGUE_EAR_THRESHOLD&&avgEar>0.01)||blinkHz>FATIGUE_BLINK_FAST_HZ;
-  if(tired) _fatigueTiredFrames++; else _fatigueTiredFrames=Math.max(0,_fatigueTiredFrames-1);
-  if(_fatigueTiredFrames>=FATIGUE_FRAMES_NEEDED&&!_fatigueBreakActive) triggerFatigueBreak();
-}
-function triggerFatigueBreak(){
-  if(_fatigueBreakActive) return;
-  _fatigueBreakActive=true;
-  const overlay=document.getElementById('fatigue-break-overlay');
-  const timerEl=document.getElementById('fatigue-break-timer');
-  overlay?.classList.add('show');
-  [880,660,523,440].forEach((f,i)=>playTone(f,0.07,0.4,'sine',i*200));
-  let remaining=Math.round(BREAK_DURATION_MS/1000);
-  if(timerEl) timerEl.textContent=remaining;
-  const interval=setInterval(()=>{
-    remaining--;
-    if(timerEl) timerEl.textContent=remaining;
-    if(remaining<=0){
-      clearInterval(interval);
-      overlay?.classList.remove('show');
-      _fatigueBreakActive=false;
-      _fatigueEarHistory=[];_fatigueBlinkTimes=[];
-      [440,523,659,784,1047].forEach((f,i)=>playTone(f,0.09,0.22,'sine',i*60));
-    }
-  },1000);
-}
-
 // ─── CALIBRATION MAIN ────────────────────────────────────────────────────────
 function startCalib(){
   calibPoints   =buildCalibPoints();
@@ -1537,37 +1444,9 @@ function classifyGaze(gaze,currentTime){
   prevGaze=gaze;prevGazeTime=currentTime;return cat;
 }
 
-// ─── WELFARE MONITOR ─────────────────────────────────────────────────────────
-function updateWelfareHUD(hasFace,ear,headPos,currentTime){
-  if(hasFace&&ear<0.22){
-    if(lastBlinkTime>0){
-      const dur=currentTime-lastBlinkTime;
-      if(dur<200) blinkTimes.push(currentTime);
-      else if(dur<800){slowBlinkCount++;blinkTimes.push(currentTime);}
-    }
-    lastBlinkTime=currentTime;
-  }
-  const cutoff=currentTime-30000;
-  blinkTimes=blinkTimes.filter(t=>t>cutoff);
-  if(headPos&&lastHeadPos){const mv=Math.hypot(headPos.x-lastHeadPos.x,headPos.y-lastHeadPos.y);if(mv>0.03)headMovementEvents++;}
-  lastHeadPos=headPos;
-  if(!hasFace) faceOffFrames++;
-  if(totalF%30===0){
-    const mins=(currentTime-sessionStart)/60000||0.001;
-    const bpm=Math.round(blinkTimes.length/mins);
-    const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️':'✓';
-    const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
-    const wb=document.getElementById('welfare-blink');    if(wb) wb.textContent=`${bpm}/min`;
-    const wd=document.getElementById('welfare-drowsy');   if(wd) wd.textContent=drowsyFlag;
-    const wh=document.getElementById('welfare-head');     if(wh) wh.textContent=headMovementEvents;
-    const wf=document.getElementById('welfare-faceoff');  if(wf) wf.textContent=`${faceOffPct}%`;
-  }
-}
-
 // ─── RECORDING ───────────────────────────────────────────────────────────────
 function startRecording(){
   sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;
-  blinkTimes=[];lastBlinkTime=0;slowBlinkCount=0;headMovementEvents=0;lastHeadPos=null;faceOffFrames=0;
   _lastKnownPupilDiamR=3.5;_lastKnownPupilDiamL=3.5;  // reset pupil hold each session
   prevGaze=null;prevGazeTime=null;  // reset saccade state
   // Cache video dimensions once — avoids expensive getSettings() on every frame
@@ -1634,7 +1513,6 @@ function processingLoop(){
             }
           }
           const isBlink=ear<_earThreshold;
-          checkFatigue(ear,isBlink);
           if(!isBlink){
             const rawGaze=gazeModel?predictGaze(feat,gazeModel):estimateGazeFromIris(feat);
             _calibCurrentGaze=rawGaze;_calibLastGaze=rawGaze;_calibLastGazeTs=performance.now();
@@ -1681,10 +1559,7 @@ function processingLoop(){
       const ear=feat[7];
       const isBlink=ear<_earThreshold;  // adaptive per-child threshold set during calib
       const nowMs=Date.now()-sessionStart;
-      const hpx=(lm[33].x+lm[263].x)/2, hpy=(lm[33].y+lm[263].y)/2;
 
-      // [CLEAN-8] only call welfare during stimulus
-      if(phase==='stimulus') updateWelfareHUD(hasFace,ear,{x:hpx,y:hpy},nowMs);
 
       let leftPupilX=null,leftPupilY=null,rightPupilX=null,rightPupilY=null;
       try{
@@ -1766,8 +1641,6 @@ function processingLoop(){
     }else if(phase==='stimulus'){
       totalF++;
       const nowMs=Date.now()-sessionStart;
-      // [CLEAN-8] welfare for no-face frames
-      updateWelfareHUD(false,1.0,null,nowMs);
       recordedFrames.push({
         t:nowMs,tracked:0,gazeX:NaN,gazeY:NaN,gazeXL:NaN,gazeYL:NaN,
         leftPupilX:null,leftPupilY:null,rightPupilX:null,rightPupilY:null,
@@ -1810,18 +1683,12 @@ const CSV_HDR=[
 ].join(','); // 57 columns — matches SMI RED exactly
 
 function buildCSV(){
-  const sessionMins=(Date.now()-sessionStart)/60000||0.001;
-  const blinkRatePerMin=Math.round(blinkTimes.length/sessionMins);
-  const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️':'✓';
-  const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
   const biasMeta=[
-    '# GazeTrack v20',
+    '# GazeTrack v21',
     `bias_dx=${affineBias.dx.toFixed(2)}`,`bias_dy=${affineBias.dy.toFixed(2)}`,
     `bias_sx=${affineBias.sx.toFixed(4)}`,`bias_sy=${affineBias.sy.toFixed(4)}`,
     `val_samples=${valSamples.length}`,`calib_samples=${calibSamples.length}`,
     `skip_mode=${calibSkipActive}`,
-    `blinks/min=${blinkRatePerMin}`,`drowsy=${drowsyFlag}`,
-    `head_moves=${headMovementEvents}`,`face_off=${faceOffPct}%`,
     `viewport=${window.innerWidth}x${window.innerHeight}`,
     `fullscreen=${!!document.fullscreenElement}`
   ].join(' | ');
@@ -1963,10 +1830,6 @@ function endSession(){
   const biasLabel=biasOk?`${affineBias.dx>0?'+':''}${affineBias.dx.toFixed(0)},${affineBias.dy>0?'+':''}${affineBias.dy.toFixed(0)}px`:'Minimal';
   const fixCount=recordedFrames.filter(f=>f.category==='Fixation').length;
   const sacCount=recordedFrames.filter(f=>f.category==='Saccade').length;
-  const sessionMins=dur/60||0.001;
-  const blinkRate=Math.round(blinkTimes.length/sessionMins);
-  const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️ Drowsy':'✓ Normal';
-  const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
   const statsEl=document.getElementById('done-stats');
   if(statsEl){
     statsEl.innerHTML=`
@@ -1977,11 +1840,10 @@ function endSession(){
       <div class="done-stat"><div class="n" style="color:var(--accent)">${fixCount}</div><div class="l">FIXATIONS</div></div>
       <div class="done-stat"><div class="n" style="color:var(--gold)">${sacCount}</div><div class="l">SACCADES</div></div>
       <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
-      <hr style="grid-column:1/-1;border:0;border-top:1px solid var(--border);margin:8px 0">
-      <div class="done-stat"><div class="n">${blinkRate}/min</div><div class="l">BLINKS</div></div>
-      <div class="done-stat"><div class="n">${drowsyFlag}</div><div class="l">DROWSINESS</div></div>
-      <div class="done-stat"><div class="n">${headMovementEvents}</div><div class="l">HEAD MOVES</div></div>
-      <div class="done-stat"><div class="n">${faceOffPct}%</div><div class="l">FACE OFF</div></div>`;
+<div class="l">BLINKS</div></div>
+<div class="l">DROWSINESS</div></div>
+<div class="l">HEAD MOVES</div></div>
+<div class="l">FACE OFF</div></div>`;
   }
   showScreen('done');
   const ts2=new Date().toISOString().replace(/[:.]/g,'-');
