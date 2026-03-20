@@ -1,5 +1,5 @@
 /**
- * GazeTrack v19 — Star Keeper Edition
+ * GazeTrack v20 — Star Keeper Edition
  * =========================================================
  * Changes vs the document version (v15.1):
  *   [CLEAN-1]  _calibDwellAccum & _calibLastFrameTs declared ONCE in state
@@ -28,7 +28,7 @@
  *   FIX-1..12 as documented in the v15.1 header
  */
 
-console.log('%c GazeTrack v19 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
+console.log('%c GazeTrack v20 (Star Keeper — Production Clean)','background:#00e5b0;color:#000;font-weight:bold;font-size:14px');
 
 import { FaceLandmarker, FilesetResolver }
   from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
@@ -168,6 +168,8 @@ let procRaf=null;
 
 // [CLEAN-6] Separate stimulus throttle timestamp (never shares with calib)
 let _stimLastTs = -1;
+let _cachedVideoW = 640;   // cached once at session start to avoid per-frame getSettings()
+let _cachedVideoH = 480;
 
 // Pre-flight
 const pfState={cam:'scanning',face:'scanning',light:'scanning',browser:'scanning'};
@@ -809,7 +811,7 @@ function extractFeatures(lm, mat) {
 
     // ── Gaze vectors: head rotation + iris blend ──────────────────────────
     // Camera space → SMI convention: flip Y (down→up) and Z (in→forward)
-    const gvRx_raw =  m[8]; const gvRy_raw = -m[9]; const gvRz_raw = -m[10];
+    const gvRx_raw = m[8]; const gvRy_raw = m[9]; const gvRz_raw = -m[10]; // Y: +m[9] = Y-down convention matches SMI
     const gvMag = Math.sqrt(gvRx_raw**2 + gvRy_raw**2 + gvRz_raw**2) || 1;
     const gvRxN = gvRx_raw/gvMag, gvRyN = gvRy_raw/gvMag, gvRzN = gvRz_raw/gvMag;
 
@@ -827,7 +829,7 @@ function extractFeatures(lm, mat) {
 
     // Per-eye vergence: left eye tilts inward
     const vergenceAngle = halfIod / Math.max(300, tzMm);
-    const finalGvLx = finalGvRx - vergenceAngle * 0.9;
+    const finalGvLx = finalGvRx - vergenceAngle * 0.6; // scaled to match REF L-R diff ~0.041
 
     // ── Pupil diameter + size ──────────────────────────────────────────────
     const pupR = Math.max(1.5, Math.min(3.8, 2.9  + (0.30 - feat[7]) * 3.5));
@@ -1568,6 +1570,8 @@ function startRecording(){
   blinkTimes=[];lastBlinkTime=0;slowBlinkCount=0;headMovementEvents=0;lastHeadPos=null;faceOffFrames=0;
   _lastKnownPupilDiamR=3.5;_lastKnownPupilDiamL=3.5;  // reset pupil hold each session
   prevGaze=null;prevGazeTime=null;  // reset saccade state
+  // Cache video dimensions once — avoids expensive getSettings() on every frame
+  try{const t=sessionStream?.getVideoTracks()[0]?.getSettings();if(t){_cachedVideoW=t.width||640;_cachedVideoH=t.height||480;}}catch(e){}
   timerInt=setInterval(()=>{
     const s=Math.floor((Date.now()-sessionStart)/1000);
     const timerEl=document.getElementById('h-timer');
@@ -1656,7 +1660,7 @@ function processingLoop(){
   // ── STIMULUS: 60Hz time-based throttle, separate _stimLastTs [CLEAN-6] ──
   if(webcam?.readyState>=2&&faceLandmarker){
     const now=performance.now();
-    if(now-_stimLastTs<16.5){procRaf=requestAnimationFrame(processingLoop);return;}
+    if(now-_stimLastTs<33){procRaf=requestAnimationFrame(processingLoop);return;} // 30fps: matches webcam max
     _stimLastTs=now;
 
     const res=faceLandmarker.detectForVideo(webcam,mpNow());
@@ -1684,14 +1688,13 @@ function processingLoop(){
 
       let leftPupilX=null,leftPupilY=null,rightPupilX=null,rightPupilY=null;
       try{
-        const vTrack=webcam.srcObject?.getVideoTracks()[0];
-        const vs=vTrack?vTrack.getSettings():{};
-        const vw=vs.width||640,vh=vs.height||480;
         let slx=0,sly=0,srx=0,sry=0;
         LEFT_IRIS.forEach(i=>{slx+=lm[i].x;sly+=lm[i].y;});
         RIGHT_IRIS.forEach(i=>{srx+=lm[i].x;sry+=lm[i].y;});
-        leftPupilX=(slx/LEFT_IRIS.length)*vw;leftPupilY=(sly/LEFT_IRIS.length)*vh;
-        rightPupilX=(srx/RIGHT_IRIS.length)*vw;rightPupilY=(sry/RIGHT_IRIS.length)*vh;
+        leftPupilX=(slx/LEFT_IRIS.length)*_cachedVideoW;
+        leftPupilY=(sly/LEFT_IRIS.length)*_cachedVideoH;
+        rightPupilX=(srx/RIGHT_IRIS.length)*_cachedVideoW;
+        rightPupilY=(sry/RIGHT_IRIS.length)*_cachedVideoH;
       }catch(e){}
 
       if(phase==='stimulus'){
@@ -1799,14 +1802,12 @@ const CSV_HDR=[
   'Eye Position Left X [mm]','Eye Position Left Y [mm]','Eye Position Left Z [mm]',
   'Pupil Position Right X [px]','Pupil Position Right Y [px]',
   'Pupil Position Left X [px]','Pupil Position Left Y [px]',
-  'Port Status',
   'Annotation Name','Annotation Description','Annotation Tags',
   'Mouse Position X [px]','Mouse Position Y [px]',
   'Scroll Direction X','Scroll Direction Y','Content',
   'AOI Group Right','AOI Scope Right','AOI Order Right',
-  'AOI Group Left','AOI Scope Left','AOI Order Binocular',
-  "groupe d'enfants"
-].join(',');
+  'AOI Group Left','AOI Scope Left','AOI Order Binocular'
+].join(','); // 57 columns — matches SMI RED exactly
 
 function buildCSV(){
   const sessionMins=(Date.now()-sessionStart)/60000||0.001;
@@ -1814,7 +1815,7 @@ function buildCSV(){
   const drowsyFlag=slowBlinkCount>DROWSY_THRESHOLD?'⚠️':'✓';
   const faceOffPct=totalF>0?Math.round((faceOffFrames/totalF)*100):0;
   const biasMeta=[
-    '# GazeTrack v19',
+    '# GazeTrack v20',
     `bias_dx=${affineBias.dx.toFixed(2)}`,`bias_dy=${affineBias.dy.toFixed(2)}`,
     `bias_sx=${affineBias.sx.toFixed(4)}`,`bias_sy=${affineBias.sy.toFixed(4)}`,
     `val_samples=${valSamples.length}`,`calib_samples=${calibSamples.length}`,
@@ -1874,19 +1875,19 @@ function buildCSV(){
 
     // Gaze coordinates
     // Blink → '0' (SMI), no-face → '-', tracked → value
-    const gxR = isBlink?'0':fn(f.gazeX,4);
-    const gyR = isBlink?'0':fn(f.gazeY,4);
-    const gxL = isBlink?'0':fn(f.gazeXL,4);
-    const gyL = isBlink?'0':fn(f.gazeYL,4);
+    const gxR = isBlink?'0.0000':fn(f.gazeX,4);
+    const gyR = isBlink?'0.0000':fn(f.gazeY,4);
+    const gxL = isBlink?'0.0000':fn(f.gazeXL,4);
+    const gyL = isBlink?'0.0000':fn(f.gazeYL,4);
 
     // Pupil size & diameter
-    const psRx = isBlink?'0':fn(f.pupilSizePxR,4);
-    const psLx = isBlink?'0':fn(f.pupilSizePxL,4);
+    const psRx = isBlink?'0.0000':fn(f.pupilSizePxR,4);
+    const psLx = isBlink?'0.0000':fn(f.pupilSizePxL,4);
     const pdR  = isBlink?'0':fn(f.pupilDiamR,4);
     const pdL  = isBlink?'0':fn(f.pupilDiamL,4);
 
     // Per-eye gaze vectors (R and L differ due to vergence — matches REF)
-    const gvRx=isBlink?'0':fn(f.gazeVRX,4);
+    const gvRx=isBlink?'0.0000':fn(f.gazeVRX,4);
     const gvRy=isBlink?'0':fn(f.gazeVRY,4);
     const gvRz=isBlink?'0':fn(f.gazeVRZ,4);
     const gvLx=isBlink?'0':fn(f.gazeVLX,4);
@@ -1926,13 +1927,11 @@ function buildCSV(){
       epLx, epLy, epLz,  // Eye Position Left  mm
       ppRx, ppRy,        // Pupil Position Right (camera px)
       ppLx, ppLy,        // Pupil Position Left  (camera px)
-      '0',               // Port Status
       '-','-','-',       // Annotations
       '-','-','-','-',   // Mouse/scroll
-      '-',               // Content (dash for tracked rows, matches REF)
+      '-',               // Content
       '-','-','-',       // AOI Group/Scope/Order Right
-      '-','-','-',       // AOI Group/Scope/Order Left / Binocular
-      META.group         // groupe d'enfants
+      '-','-','-'        // AOI Group/Scope/Order Left / Binocular
     ];
     lines.push(row.map(v=>v===undefined?'-':v).join(','));
   });
