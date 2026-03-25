@@ -7,7 +7,6 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
 <title>GazeTrack — ASD Eye Tracking</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
@@ -75,13 +74,25 @@
   </div>
 
   <div class="form-section">
-    <div class="section-label">Stimulus Video</div>
+    <div class="section-label">Stimulus Playlist</div>
     <div class="field">
-      <label>Video File (optional — can load after calibration)</label>
+      <label>Add videos &amp; images — order them below (optional)</label>
       <div class="video-drop" id="video-drop">
         <div class="icon">🎬</div>
-        <div class="hint" id="video-hint">Click to choose .mp4 / .webm / .mov</div>
-        <input type="file" id="video-input" accept="video/*"/>
+        <div class="hint" id="video-hint">Click to add .mp4 / .webm / .mov / .jpg / .png</div>
+        <input type="file" id="video-input" accept="video/*,image/*" multiple/>
+      </div>
+    </div>
+    <div id="playlist-wrap" style="display:none;margin-top:10px;">
+      <div class="playlist-header">
+        <span class="playlist-label">Playlist — <span id="playlist-count">0</span> item(s)</span>
+        <span class="playlist-hint">Drag to reorder · Click × to remove</span>
+      </div>
+      <ul id="playlist-list"></ul>
+      <div class="playlist-photo-dur" id="photo-dur-row" style="display:none;">
+        <label for="photo-dur-input">📷 Show each image for</label>
+        <input type="number" id="photo-dur-input" value="5" min="1" max="60" step="1"/>
+        <span>seconds</span>
       </div>
     </div>
   </div>
@@ -157,21 +168,15 @@
 
 <!-- ══════════════════════════════════════ SCREEN 3: CALIBRATION ══════════════════════════════════════ -->
 <div id="s-calib" class="screen">
-
-  <!-- Main calibration canvas (JS draws the star-field and FX on top of this) -->
+  <!-- Main calibration canvas — JS draws star-field, creatures, and FX on top -->
   <canvas id="calib-canvas"></canvas>
-
-  <!-- Progress paw-prints — updated by JS via updateCalibHUD() -->
-  <div id="calib-progress" style="display:none;position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:60;pointer-events:none;"></div>
 
   <!-- Calibration intro overlay — shown before child starts -->
   <div id="calib-overlay">
     <div class="calib-card" id="calib-card">
 
-      <!-- Title & emoji row -->
       <h2>🌟 Meet the Magical Creatures!</h2>
 
-      <!-- Parent/clinician instruction block -->
       <p style="color:#ccc;font-size:14px;font-weight:600;margin-bottom:4px;letter-spacing:.04em;text-transform:uppercase;">For parents &amp; clinicians:</p>
       <p>
         Five magical creatures — <strong style="color:#ffd700">Starby</strong>,
@@ -190,12 +195,11 @@
         or pressing <strong>Try Again</strong>. After two attempts a <strong>Skip</strong> option appears.</span>
       </p>
 
-      <!-- Primary action button -->
       <button class="calib-start-btn" id="calib-start-btn">
         🌟 &nbsp; Start — Feed the Creatures!
       </button>
 
-      <!-- Skip calibration button — hidden until 2 failed attempts -->
+      <!-- Hidden until 2 failed attempts -->
       <button class="calib-skip-btn" id="calib-skip-btn" style="display:none;margin-top:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#aaa;font-size:13px;padding:10px 22px;border-radius:12px;cursor:pointer;">
         ⚡ Skip calibration (approximate mode)
       </button>
@@ -204,11 +208,8 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════ VALIDATION OVERLAY — STAR GAME ══════════════════════════════════════ -->
-<!--
-  Shows after calibration completes. Child looks at 3 gold stars to validate
-  the gaze model before the stimulus begins.
--->
+<!-- ══════════════════════════════════════ VALIDATION OVERLAY ══════════════════════════════════════ -->
+<!-- Shows after calibration. Child looks at 4 gold stars to validate the gaze model. -->
 <div id="val-overlay" style="display:none;">
   <canvas id="val-canvas"></canvas>
   <div id="val-instruction">
@@ -224,16 +225,32 @@
 <!-- ══════════════════════════════════════ SCREEN 4: STIMULUS ══════════════════════════════════════ -->
 <div id="s-stimulus" class="screen">
   <video id="stim-video" playsinline muted></video>
+  <img id="stim-image" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;"/>
   <canvas id="gaze-canvas"></canvas>
 
   <div id="no-video">
     <div class="big">🎬</div>
-    <p>No stimulus video loaded.<br>Choose a file to continue.</p>
-    <label class="pick-btn" for="stim-file-input">📂 Choose Video File</label>
-    <input type="file" id="stim-file-input" accept="video/*" style="display:none"/>
+    <p>No stimulus loaded.<br>Add files in the playlist or choose one below.</p>
+    <label class="pick-btn" for="stim-file-input">📂 Choose File</label>
+    <input type="file" id="stim-file-input" accept="video/*,image/*" style="display:none"/>
   </div>
 
   <button id="sound-btn" style="display:none;">🔊 Tap for Sound</button>
+
+  <!-- Trial progress badge — bottom-centre -->
+  <div id="trial-badge" style="display:none;position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+    background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.18);border-radius:20px;
+    padding:4px 16px;font-size:12px;color:#ddd;z-index:100;pointer-events:none;">
+    Trial <span id="trial-badge-cur">1</span> / <span id="trial-badge-tot">1</span>
+    &nbsp;·&nbsp; <span id="trial-badge-name">—</span>
+  </div>
+
+  <!-- Manual next-trial button for clinician -->
+  <button id="next-trial-btn" style="display:none;position:absolute;bottom:14px;right:80px;
+    background:rgba(0,229,176,0.15);border:1px solid var(--accent);color:var(--accent);
+    font-size:13px;font-weight:700;padding:6px 18px;border-radius:20px;cursor:pointer;z-index:100;">
+    ⏭ Next Trial
+  </button>
 
   <!-- Session HUD — top bar -->
   <div id="hud">
@@ -242,6 +259,7 @@
       <div class="hud-chip">ID: <b id="h-child">—</b></div>
       <div class="hud-chip">Group: <b id="h-group">—</b></div>
       <div class="hud-chip">Face: <b id="h-face" class="bad">—</b></div>
+      <div class="hud-chip" id="h-trial-chip" style="display:none;">Trial: <b id="h-trial">1/1</b></div>
     </div>
     <button class="end-btn" id="end-btn">■ End</button>
   </div>
@@ -254,8 +272,6 @@
     <div class="sr"><span class="sl">Track%</span><span class="sv" id="st-track">—</span></div>
     <div class="sr"><span class="sl">POR Y std</span><span class="sv" id="st-ystd">—</span></div>
   </div>
-
-
 </div>
 
 <!-- ══════════════════════════════════════ SCREEN 5: DONE ══════════════════════════════════════ -->
@@ -276,14 +292,19 @@
 <!-- ══════════════════════════════════════ DEBUG PANEL (press D) ══════════════════════════════════════ -->
 <div id="debug-panel" style="display:none;">
   <div class="dbg-title">▶ FEATURE DEBUG (D to close)</div>
-  <div id="d-vert">pitch[2]: —</div>
-  <div id="d-foreY">foreheadY: —</div>
-  <div id="d-irisY">irisYabs: —</div>
-  <div id="d-liX">liX / riX: —</div>
-  <div id="d-pitch-src">source / EAR / IOD: —</div>
-  <div id="d-py" style="color:#ffcc00">→ pred Y: —</div>
-  <div id="d-px" style="color:#ffcc00">→ pred X: —</div>
+  <div id="d-py"   style="color:#ffcc00">→ pred Y: —</div>
+  <div id="d-px"   style="color:#ffcc00">→ pred X: —</div>
   <div id="d-bias" style="color:#ff9f43">bias: not computed</div>
+</div>
+
+<!-- ══════════════════════════════════════ FATIGUE BREAK OVERLAY ══════════════════════════════════════ -->
+<!-- Shown by welfare module after 15 min or on manual trigger. CSS defined in injectCalibCSS(). -->
+<div id="fatigue-break-overlay">
+  <div id="fatigue-break-box">
+    <h2>⏸ Time for a Break!</h2>
+    <p id="fatigue-break-msg">Great work — just a short rest!</p>
+    <div id="fatigue-break-timer">0:30</div>
+  </div>
 </div>
 
 <script type="module" src="app.js"></script>
