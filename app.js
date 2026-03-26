@@ -11,16 +11,12 @@ const IS_TABLET = /iPad|Android(?!.*Mobile)/i.test(navigator.userAgent)
   || (window.innerWidth >= 768 && window.innerWidth <= 1280);
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const CALIB_GAZE_HOLD          = 700;
 const CALIB_SAMPLE_MS          = 600;
 const CALIB_TOTAL_PTS          = 5;
 const CALIB_GAP_MS             = 500;
 const MIN_SAMPLES              = 25;
 const RIDGE_ALPHA              = 0.01;
-const CALIB_BLINK_FORGIVE_MS   = 600;
 const CALIB_IRIS_BRIDGE_MS     = 150;
-const CALIB_CORNER_BONUS       = 2.2;
-const CALIB_DIAG_FRACTION      = 0.18;
 const CALIB_DWELL_REQUIRED_MS  = 2500;
 const CALIB_FORCE_SKIP_MS      = 8000;
 const LEFT_IRIS  = [468,469,470,471];
@@ -37,9 +33,6 @@ const BAD_STREAK_HIDE    = 12;
 const MONGO_API_URL = 'https://gazetrack-api.onrender.com/api/sessions';
 
 // ─── MONOTONIC TIMESTAMP ─────────────────────────────────────────────────────
-// Guarantees strictly-increasing timestamps for every detectForVideo call.
-// Browsers clamp performance.now() resolution (privacy.resistFingerprinting),
-// so the same ms value can repeat or go backwards across rapid RAF callbacks.
 let _mpLastTs = -1;
 function mpNow() {
   const t = performance.now();
@@ -48,7 +41,7 @@ function mpNow() {
 }
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
-let phase = 'intake';
+let phase          = 'intake';
 let faceLandmarker = null;
 let camStream      = null;
 let sessionStream  = null;
@@ -57,38 +50,35 @@ let calibSamples   = [];
 let affineBias     = {dx:0, dy:0, sx:1, sy:1};
 
 // Calibration
-let calibPoints    = [];
-let calibIdx       = 0;
-let calibRaf       = null;
-let calibState     = 'idle';
-let calibFailCount = 0;
-let calibSkipActive= false;
+let calibPoints     = [];
+let calibIdx        = 0;
+let calibRaf        = null;
+let calibState      = 'idle';
+let calibFailCount  = 0;
+let calibSkipActive = false;
 
-// [CLEAN-1] single declarations for calib loop state
-let _calibCurrentGaze  = null;
-let _calibLastGaze     = null;
-let _calibLastGazeTs   = 0;
-let _calibLastFeat     = null;
-let _calibHoldStart    = null;
-let _calibHoldLostAt   = null;
-let _calibSampling     = false;
-let _calibSamplingStart= 0;
-let _calibPointSamples = [];
-let _calibSparkled     = false;
-let _calibSkipTimer    = null;
-let _calibLoopT        = 0;
-let _calibDwellAccum   = 0;      // [CLEAN-1] declared once here only
-let _calibLastFrameTs  = 0;      // [CLEAN-1] declared once here only
-let _calibProcTs       = -1;     // [CLEAN-2] declared once here only
-let _calibTargetY      = -1;     // set per-point; estimateGazeFromIris uses this
+let _calibCurrentGaze   = null;
+let _calibLastGaze      = null;
+let _calibLastGazeTs    = 0;
+let _calibLastFeat      = null;
+let _calibHoldStart     = null;
+let _calibHoldLostAt    = null;
+let _calibSampling      = false;
+let _calibSamplingStart = 0;
+let _calibPointSamples  = [];
+let _calibSparkled      = false;
+let _calibSkipTimer     = null;
+let _calibLoopT         = 0;
+let _calibDwellAccum    = 0;
+let _calibLastFrameTs   = 0;
+let _calibProcTs        = -1;
+let _calibTargetY       = -1;
 
 // Creature calibration
 let creatureEls     = [];
 let doneCalibPoints = new Set();
 let calibParticles  = [];
 let calibFloaties   = [];
-
-// Fatigue
 
 // Validation
 let valPoints=[],valIdx=0,valSamples=[],valRaf=null,valStart=0;
@@ -99,8 +89,15 @@ let _valLastDetectTs = -1;
 let recordedFrames=[],totalF=0,trackedF=0;
 let sessionStart=0,timerInt=null;
 let csvData=null;
-let videoBlob=null;
 let META={pid:'',age:'',group:'',clinician:'',location:'',notes:'',stimulus:''};
+
+// Playlist / multi-trial
+let playlist         = [];  // [{objectURL, name, type:'video'|'image'}]
+let playlistTrialIdx = 0;
+let trialStartMs     = 0;
+let photoDurSec      = 5;
+let _photoTimer      = null;
+let _dragIdx         = null;
 
 // Saccade
 let prevGaze=null,prevGazeTime=null;
@@ -108,12 +105,11 @@ let prevGaze=null,prevGazeTime=null;
 // Face
 let calibFacePresent=false;
 
-// Adaptive EAR threshold — calibrated per-child during first 60 frames of calib
-// Avoids one-size-fits-all threshold that fails for children with different eye shapes
+// Adaptive EAR threshold
 let _earCalibSamples=[];
-let _earThreshold=0.22;  // default; updated adaptively
+let _earThreshold=0.22;
 
-// Pupil diameter hold — preserve last known value during blinks (matches SMI behaviour)
+// Pupil hold
 let _lastKnownPupilDiamR=3.5;
 let _lastKnownPupilDiamL=3.5;
 
@@ -125,16 +121,14 @@ let previewFl=null,previewRaf=null,lastPreviewTs=-1,_prevLastRun=0;
 let _lastVideoTime=-1;
 let procRaf=null;
 
-// [CLEAN-6] Separate stimulus throttle timestamp (never shares with calib)
+// Stimulus throttle
 let _stimLastTs = -1;
-let _cachedVideoW = 640;   // cached once at session start to avoid per-frame getSettings()
+let _cachedVideoW = 640;
 let _cachedVideoH = 480;
 
 // Pre-flight
 const pfState={cam:'scanning',face:'scanning',light:'scanning',browser:'scanning'};
 let pfRaf=null,_pfSamples=[],_pfThrottle=0,_pfCanvas=null,_pfCtx=null;
-
-// Welfare
 
 // Star background
 let calibStarCvs=null,calibStarCtx=null,calibStars=[];
@@ -149,15 +143,16 @@ const screens = {
   stimulus: document.getElementById('s-stimulus'),
   done:     document.getElementById('s-done'),
 };
-const camPreview     = document.getElementById('cam-preview');
-const camCanvas      = document.getElementById('cam-canvas');
-const camCtx         = camCanvas?.getContext('2d');
-const calibCanvas    = document.getElementById('calib-canvas');
-const calibCtx       = calibCanvas?.getContext('2d');
-const gazeCanvas     = document.getElementById('gaze-canvas');
-const gazeCtx        = gazeCanvas?.getContext('2d');
-const webcam         = document.getElementById('webcam');
-const stimVideo      = document.getElementById('stim-video');
+const camPreview  = document.getElementById('cam-preview');
+const camCanvas   = document.getElementById('cam-canvas');
+const camCtx      = camCanvas?.getContext('2d');
+const calibCanvas = document.getElementById('calib-canvas');
+const calibCtx    = calibCanvas?.getContext('2d');
+const gazeCanvas  = document.getElementById('gaze-canvas');
+const gazeCtx     = gazeCanvas?.getContext('2d');
+const webcam      = document.getElementById('webcam');
+const stimVideo   = document.getElementById('stim-video');
+const stimImage   = document.getElementById('stim-image');
 const allclearBanner = document.getElementById('position-allclear');
 
 function showScreen(n) {
@@ -165,7 +160,6 @@ function showScreen(n) {
   screens[n]?.classList.add('active');
 }
 
-// Touch-friendly sizing
 if (IS_TABLET) {
   [calibCanvas, gazeCanvas, camCanvas].forEach(c => { if (c) c.style.touchAction = 'none'; });
   document.querySelectorAll('button,.clickable').forEach(el => { if (el) el.style.minHeight = '48px'; });
@@ -200,21 +194,6 @@ if (IS_TABLET) {
       50%  { transform:translate(-50%,-50%) scale(1.3) rotate(10deg); }
       100% { transform:translate(-50%,-50%) scale(1.1); }
     }
-    #fatigue-break-overlay {
-      position:fixed; inset:0; background:rgba(0,0,0,0.80);
-      display:none; align-items:center; justify-content:center;
-      z-index:9990; flex-direction:column; gap:18px;
-    }
-    #fatigue-break-overlay.show { display:flex; }
-    #fatigue-break-box {
-      background:linear-gradient(135deg,#1a2a3a,#0d1f2d);
-      border:2px solid rgba(255,200,0,0.5); border-radius:24px;
-      padding:40px 52px; text-align:center; max-width:420px;
-      animation:break-pulse 1.8s infinite;
-    }
-    #fatigue-break-box h2 { font-size:2rem; margin:0 0 8px; color:#ffd700; }
-    #fatigue-break-box p  { color:#aaa; margin:0 0 16px; }
-    #fatigue-break-timer  { font-size:3rem; font-weight:800; color:#ffd700; letter-spacing:2px; }
     .calib-creature-wrap {
       position:absolute; transform:translate(-50%,-50%);
       pointer-events:none; z-index:30; opacity:0; transition:opacity 0.3s;
@@ -243,12 +222,28 @@ if (IS_TABLET) {
     }
     #calib-fx-canvas   { position:absolute; inset:0; pointer-events:none; z-index:40; }
     #calib-star-canvas { position:absolute; inset:0; pointer-events:none; z-index:1;  }
+    .playlist-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+    .playlist-label  { font-size:12px; font-weight:700; color:rgba(255,255,255,0.5); }
+    .playlist-hint   { font-size:11px; color:rgba(255,255,255,0.3); }
+    #playlist-list   { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+    .playlist-item   {
+      display:flex; align-items:center; gap:8px; padding:7px 10px;
+      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);
+      border-radius:8px; cursor:grab; user-select:none;
+      font-size:12.5px; transition:background 0.15s;
+    }
+    .playlist-item:hover { background:rgba(0,229,176,0.06); }
+    .pl-drag   { color:rgba(255,255,255,0.25); font-size:16px; cursor:grab; }
+    .pl-icon   { font-size:15px; }
+    .pl-name   { flex:1; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pl-type   { font-size:10px; color:rgba(255,255,255,0.35); font-family:monospace; }
+    .pl-remove { background:none; border:none; color:rgba(255,92,58,0.7); font-size:16px; cursor:pointer; padding:0 4px; line-height:1; }
+    .pl-remove:hover { color:#ff5c3a; }
+    .playlist-photo-dur { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:rgba(255,255,255,0.5); }
+    .playlist-photo-dur input { width:52px; padding:4px 8px; border-radius:6px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:#fff; font-size:12px; text-align:center; }
   `;
   document.head.appendChild(style);
 })();
-
-// ─── FATIGUE BREAK OVERLAY ───────────────────────────────────────────────────
-
 
 // ─── AUDIO ───────────────────────────────────────────────────────────────────
 let _audioCtx = null;
@@ -348,7 +343,8 @@ function showAllClear(bright) {
   _allclearShowing = true;
   clearTimeout(_allclearHideTimer);
   const tagsEl = document.getElementById('allclear-tags');
-  if (tagsEl) tagsEl.innerHTML = ['✓ Face visible · Good distance','✓ Lighting OK'].map(t=>`<span class="allclear-tag">${t}</span>`).join('');
+  if (tagsEl) tagsEl.innerHTML = ['✓ Face visible · Good distance','✓ Lighting OK']
+    .map(t=>`<span class="allclear-tag">${t}</span>`).join('');
   const det = document.getElementById('allclear-detail');
   if (det) det.textContent = `Brightness ${Math.round(bright)}/255`;
   allclearBanner?.classList.add('show');
@@ -384,7 +380,6 @@ function pfUpdateScore() {
   if (pfState.light==='warn')   tips.push('<strong>💡 Lighting:</strong> Brighter room helps iris detection.');
   if (pfState.face==='fail')    tips.push('<strong>👤 No face:</strong> Make sure child is in frame, camera at eye level.');
   if (pfState.browser==='warn') tips.push('<strong>🌐 Browser:</strong> Use Chrome for best webcam performance.');
-  // Viewport height warning — critical for gaze Y accuracy
   if (window.innerHeight < 700) {
     tips.push(`<strong>📐 Small window (${window.innerHeight}px):</strong> Press <kbd style="background:#333;padding:1px 5px;border-radius:4px;font-size:11px;">F11</kbd> for fullscreen — gaze Y accuracy requires a tall viewport.`);
   }
@@ -393,10 +388,10 @@ function pfUpdateScore() {
   const btn = document.getElementById('start-btn');
   if (btn && !btn.disabled) {
     const critFails = ['cam','face'].filter(k => pfState[k]==='fail').length;
-    if      (critFails>0)    { btn.textContent='⚠ Proceed Anyway'; btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)'; }
-    else if (done<total)     { btn.textContent='Begin Session →'; btn.style.background=''; }
-    else if (score>=75)      { btn.textContent='✅ All Clear - Begin Session'; btn.style.background=''; }
-    else                     { btn.textContent='⚠ Proceed with Warnings'; btn.style.background='linear-gradient(135deg,#ca8a04,#a16207)'; }
+    if      (critFails>0)  { btn.textContent='⚠ Proceed Anyway'; btn.style.background='linear-gradient(135deg,#ff9f43,#e17f20)'; }
+    else if (done<total)   { btn.textContent='Begin Session →'; btn.style.background=''; }
+    else if (score>=75)    { btn.textContent='✅ All Clear - Begin Session'; btn.style.background=''; }
+    else                   { btn.textContent='⚠ Proceed with Warnings'; btn.style.background='linear-gradient(135deg,#ca8a04,#a16207)'; }
   }
 }
 function pfAnalyseFrame() {
@@ -491,9 +486,7 @@ function previewLoop() {
       if (camCanvas.width!==dW || camCanvas.height!==dH) { camCanvas.width=dW; camCanvas.height=dH; }
     }
     try {
-      const ts = mpNow();
-      lastPreviewTs = ts;
-      const res = previewFl.detectForVideo(camPreview, ts);
+      const res = previewFl.detectForVideo(camPreview, mpNow());
       const hasFace = !!(res.faceLandmarks?.length > 0);
       camCtx?.clearRect(0,0,camCanvas.width,camCanvas.height);
       if (hasFace) {
@@ -505,15 +498,15 @@ function previewLoop() {
         if (chkFace) { chkFace.classList.add('ok'); chkFace.textContent='✓ Face'; }
         if (chkIris) { chkIris.classList.toggle('ok',hasIris); chkIris.textContent=hasIris?'✓ Iris':'👁 Iris'; }
         if (hasIris) {
-          const iodNorm = Math.hypot(lm[473].x-lm[468].x, lm[473].y-lm[468].y);
-          const faceCX  = (lm[33].x+lm[263].x)/2;
+          const iodNorm  = Math.hypot(lm[473].x-lm[468].x, lm[473].y-lm[468].y);
+          const faceCX   = (lm[33].x+lm[263].x)/2;
           const offCentre = faceCX<0.25||faceCX>0.75;
           const lEAR = Math.hypot(lm[159].x-lm[145].x, lm[159].y-lm[145].y);
           const rEAR = Math.hypot(lm[386].x-lm[374].x, lm[386].y-lm[374].y);
-          const earPx = (lEAR+rEAR)/2;
-          const qPct  = (earPx/(iodNorm+1e-6))>0.08?95:75;
-          const qFill = document.getElementById('q-fill'); if (qFill) qFill.style.width=qPct+'%';
-          const qPctEl= document.getElementById('q-pct');  if (qPctEl) qPctEl.textContent=qPct+'%';
+          const earPx  = (lEAR+rEAR)/2;
+          const qPct   = (earPx/(iodNorm+1e-6))>0.08?95:75;
+          const qFill  = document.getElementById('q-fill'); if (qFill) qFill.style.width=qPct+'%';
+          const qPctEl = document.getElementById('q-pct');  if (qPctEl) qPctEl.textContent=qPct+'%';
           if      (iodNorm>0.22)  pfSet('face','warn',`⚠ Too close - move back ~15 cm`);
           else if (iodNorm>=0.13) pfSet('face','pass',offCentre?`✓ Good distance - Move to centre`:`✓ Face visible - Good distance (~50-70 cm)`);
           else if (iodNorm>=0.07) pfSet('face','warn',`⚠ Too far - move ${offCentre?'closer & to centre':'~20 cm closer'}`);
@@ -524,10 +517,10 @@ function previewLoop() {
           pfSet('face','warn','⚠ Face detected but iris not visible - look at camera');
         }
       } else {
-        const chkFace = document.getElementById('chk-face');
-        const chkIris = document.getElementById('chk-iris');
-        if (chkFace) { chkFace.classList.remove('ok'); chkFace.textContent='👤 Face'; }
-        if (chkIris) { chkIris.classList.remove('ok'); chkIris.textContent='👁 Iris'; }
+        document.getElementById('chk-face')?.classList.remove('ok');
+        document.getElementById('chk-iris')?.classList.remove('ok');
+        const chkFace = document.getElementById('chk-face'); if (chkFace) chkFace.textContent='👤 Face';
+        const chkIris = document.getElementById('chk-iris'); if (chkIris) chkIris.textContent='👁 Iris';
         document.getElementById('q-fill')?.setAttribute('style','width:0%');
         const qPctEl = document.getElementById('q-pct'); if (qPctEl) qPctEl.textContent=' - ';
         pfSet('face','fail','✗ No face detected - check camera position');
@@ -565,51 +558,93 @@ function checkStartBtn() {
 }
 document.getElementById('f-pid')?.addEventListener('input', checkStartBtn);
 document.querySelectorAll('input[name="group"]').forEach(r=>r.addEventListener('change',checkStartBtn));
-document.getElementById('video-drop')?.addEventListener('click',()=>document.getElementById('video-input')?.click());
-document.getElementById('video-input')?.addEventListener('change',e=>{
-  const f=e.target.files[0]; if(!f) return;
-  videoBlob=URL.createObjectURL(f); META.stimulus=f.name;
-  const hint=document.getElementById('video-hint'); if(hint) hint.style.display='none';
-  const drop=document.getElementById('video-drop');
-  drop?.querySelector('.chosen')?.remove();
-  drop?.insertAdjacentHTML('beforeend',`<div class="chosen">✓ ${f.name}</div>`);
-});
-// ─── FULLSCREEN MANAGEMENT ───────────────────────────────────────────────────
-// Gaze Y accuracy depends directly on viewport height.
-// A browser tab with toolbars can reduce innerHeight to ~585px.
-// We request fullscreen as soon as Begin Session is clicked.
-// If the browser blocks it (some kiosk configs), we show a reminder banner.
 
+// ─── PLAYLIST ────────────────────────────────────────────────────────────────
+document.getElementById('video-drop')?.addEventListener('click', () =>
+  document.getElementById('video-input')?.click());
+
+document.getElementById('video-input')?.addEventListener('change', e => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  files.forEach(f => {
+    const type = f.type.startsWith('image/') ? 'image' : 'video';
+    playlist.push({ objectURL: URL.createObjectURL(f), name: f.name, type });
+  });
+  renderPlaylist();
+  e.target.value = '';
+});
+
+function renderPlaylist() {
+  const wrap        = document.getElementById('playlist-wrap');
+  const list        = document.getElementById('playlist-list');
+  const count       = document.getElementById('playlist-count');
+  const photoDurRow = document.getElementById('photo-dur-row');
+  const hint        = document.getElementById('video-hint');
+  if (!list) return;
+  const hasItems  = playlist.length > 0;
+  if (wrap)  wrap.style.display  = hasItems ? 'block' : 'none';
+  if (hint)  hint.style.display  = hasItems ? 'none'  : 'block';
+  if (count) count.textContent   = playlist.length;
+  const hasImages = playlist.some(p => p.type === 'image');
+  if (photoDurRow) photoDurRow.style.display = hasImages ? 'flex' : 'none';
+  list.innerHTML = '';
+  playlist.forEach((item, i) => {
+    const li = document.createElement('li');
+    li.className   = 'playlist-item';
+    li.draggable   = true;
+    li.dataset.idx = i;
+    li.innerHTML   = `
+      <span class="pl-drag">⠿</span>
+      <span class="pl-icon">${item.type === 'image' ? '🖼' : '🎬'}</span>
+      <span class="pl-name">${item.name}</span>
+      <span class="pl-type">${item.type === 'image' ? 'Image' : 'Video'}</span>
+      <button class="pl-remove" data-idx="${i}">×</button>`;
+    li.addEventListener('dragstart', () => { _dragIdx = i; li.style.opacity = '0.4'; });
+    li.addEventListener('dragend',   () => { _dragIdx = null; li.style.opacity = '1'; });
+    li.addEventListener('dragover',  ev => { ev.preventDefault(); li.style.background = 'rgba(0,229,176,0.08)'; });
+    li.addEventListener('dragleave', () => { li.style.background = ''; });
+    li.addEventListener('drop', ev => {
+      ev.preventDefault(); li.style.background = '';
+      if (_dragIdx === null || _dragIdx === i) return;
+      const moved = playlist.splice(_dragIdx, 1)[0];
+      playlist.splice(i, 0, moved);
+      renderPlaylist();
+    });
+    list.appendChild(li);
+  });
+  list.querySelectorAll('.pl-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx);
+      URL.revokeObjectURL(playlist[idx].objectURL);
+      playlist.splice(idx, 1);
+      renderPlaylist();
+    });
+  });
+}
+
+document.getElementById('photo-dur-input')?.addEventListener('input', e => {
+  photoDurSec = Math.max(1, parseInt(e.target.value) || 5);
+});
+
+// ─── FULLSCREEN ───────────────────────────────────────────────────────────────
 function requestFullscreen() {
   const el = document.documentElement;
   const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-  if (req) {
-    req.call(el).catch(() => {
-      // Browser blocked fullscreen (e.g. not triggered by user gesture, or policy)
-      // Show a soft reminder instead — don't block the session
-      showFullscreenReminder();
-    });
-  } else {
-    showFullscreenReminder();
-  }
+  if (req) req.call(el).catch(() => showFullscreenReminder());
+  else showFullscreenReminder();
 }
-
 function showFullscreenReminder() {
-  // Only show if viewport is suspiciously small
   if (window.innerHeight >= 700) return;
-  const existing = document.getElementById('fs-reminder');
-  if (existing) return;
+  if (document.getElementById('fs-reminder')) return;
   const banner = document.createElement('div');
   banner.id = 'fs-reminder';
-  banner.style.cssText = `
-    position:fixed; top:0; left:0; right:0; z-index:99999;
-    background:linear-gradient(90deg,#ff9f43,#e17f20);
-    color:#fff; font-family:sans-serif; font-size:14px; font-weight:700;
-    padding:10px 20px; text-align:center; letter-spacing:.02em;
-    display:flex; align-items:center; justify-content:center; gap:14px;
-  `;
+  banner.style.cssText = `position:fixed;top:0;left:0;right:0;z-index:99999;
+    background:linear-gradient(90deg,#ff9f43,#e17f20);color:#fff;
+    font-family:sans-serif;font-size:14px;font-weight:700;padding:10px 20px;
+    text-align:center;letter-spacing:.02em;
+    display:flex;align-items:center;justify-content:center;gap:14px;`;
   banner.innerHTML = `
-    <span>⚠️ Small viewport detected (${window.innerHeight}px) — gaze Y accuracy may be affected.</span>
+    <span>⚠️ Small viewport (${window.innerHeight}px) — gaze Y accuracy may be affected.</span>
     <button onclick="document.documentElement.requestFullscreen?.();this.parentElement.remove();"
       style="background:#fff;color:#e17f20;border:none;border-radius:8px;padding:5px 14px;font-weight:800;cursor:pointer;font-size:13px;">
       Go Fullscreen (F11)
@@ -617,27 +652,25 @@ function showFullscreenReminder() {
     <button onclick="this.parentElement.remove();"
       style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:8px;padding:5px 14px;cursor:pointer;font-size:12px;">
       Continue anyway
-    </button>
-  `;
+    </button>`;
   document.body.appendChild(banner);
 }
-
-// Listen for fullscreen change so resizeCanvases() fires correctly
-document.addEventListener('fullscreenchange',     resizeCanvases);
+document.addEventListener('fullscreenchange',       resizeCanvases);
 document.addEventListener('webkitfullscreenchange', resizeCanvases);
 
-document.getElementById('start-btn')?.addEventListener('click',()=>{
+document.getElementById('start-btn')?.addEventListener('click', () => {
   META.pid       = document.getElementById('f-pid')?.value.trim()  || '';
   META.age       = document.getElementById('f-age')?.value          || '';
   META.group     = document.querySelector('input[name="group"]:checked')?.value || '';
   META.clinician = document.getElementById('f-clinician')?.value.trim() || '';
   META.location  = document.getElementById('f-location')?.value.trim()  || '';
   META.notes     = document.getElementById('f-notes')?.value.trim()      || '';
+  photoDurSec    = parseInt(document.getElementById('photo-dur-input')?.value || '5') || 5;
   cancelAnimationFrame(previewRaf);
   cancelAnimationFrame(pfRaf);
-  // Request fullscreen before loading — must be inside user gesture handler
+  _pfCanvas = null; _pfCtx = null;
   requestFullscreen();
-  phase='loading'; showScreen('loading'); beginSession();
+  phase = 'loading'; showScreen('loading'); beginSession();
 });
 initCamera();
 
@@ -660,7 +693,7 @@ async function beginSession() {
     if (webcam) { webcam.srcObject=sessionStream; }
     await new Promise(r=>{ if(webcam) webcam.onloadedmetadata=()=>{webcam.play();r();}; else r(); });
     resizeCanvases();
-    window.addEventListener('resize',resizeCanvases);
+    window.addEventListener('resize', resizeCanvases);
     phase='calib-ready'; showScreen('calib');
     procRaf=requestAnimationFrame(processingLoop);
   } catch(err) {
@@ -703,85 +736,40 @@ function extractFeatures(lm, mat) {
   const iod=Math.hypot(ri.x-li.x,ri.y-li.y);
   const feat=[liX,riX,vertMain,fore.y,irisY,(li.y+ri.y)/2,(liX+riX)/2,ear,iod];
 
-  // ── 3D enrichment calibrated against SMI RED reference (participant_30.csv) ──
-  // Targets: EyeZ~548mm EyeRX~-22mm EyeRY~-71mm IOD~43mm
-  //          GazeVecR: X=0.085 Y=0.235 Z=-0.581  Pupil px/mm=4.14
-  //
-  // LESSONS from TEST_11/12:
-  //   m[12]/m[13] are NOT pure translations — they blow up when scaled.
-  //   Use IOD-based depth (camera-independent) and landmark-based eye XY.
-  //   Gaze vec Y sign was inverted — fixed: looking down → positive Y.
   feat._3d = null;
   if (mat?.data) {
     const m = mat.data;
-
-    // ── Eye Z: IOD-based depth (more stable than matrix translation) ───────
-    // Physics: iod_norm = IOD_real / (depth * tan(HFOV/2))
-    // Webcam HFOV ~70° → tan(35°) = 0.700
-    // IOD_real for 13-14yo ≈ 60mm
-    // Empirical fit factor 1.8 from TEST_12 (iod=0.110 → 548mm target)
     const IOD_REAL_MM = 60;
-    const tzMm = Math.max(300, Math.min(750,
-      IOD_REAL_MM / Math.max(0.001, iod * 0.700 * 1.8)
-    ));
-
-    // ── IOD in mm (scale=280, calibrated from TEST_12) ────────────────────
-    // TEST_12: scale=390 gave 59mm, target=43mm → new scale = 43/59*390 = 284 → 280
+    const tzMm = Math.max(250, Math.min(750, IOD_REAL_MM / Math.max(0.001, iod * 0.700 * 1.8)));
     const iodMm   = Math.max(42, Math.min(68, iod * 280));
     const halfIod = iodMm / 2;
-
-    // ── Eye XY from landmarks (NOT matrix translation) ────────────────────
-    // m[12]/m[13] include perspective distortion → thousands of mm when scaled.
-    // Instead: use head yaw/pitch from rotation matrix for small offsets.
-    // REF: RX≈-22mm, LX≈-34mm, RY≈-71mm (camera above & right of face centre)
-    const headLateralMm = m[8] * -tzMm * 0.15;   // yaw → small lateral shift
+    const headLateralMm = m[8] * -tzMm * 0.15;
     const pitchOffset   = Math.asin(Math.max(-1, Math.min(1, -m[6]))) * 30;
-    const eyeYmm        = -65 + pitchOffset;       // baseline -65mm + pitch
-
-    // Eye X: split IOD around head centre with lateral offset
-    // FIX-V5: camera is mirrored — right eye appears on left side of image
-    // In SMI convention: right eye → negative X, left eye → positive X
-    // REF data confirms: EyeRX mean=-22mm, EyeLX mean=-34mm (both negative, R less so)
-    const eyeRX = headLateralMm - halfIod;   // right eye: negative (left side of mirrored image)
-    const eyeLX = headLateralMm + halfIod;   // left eye: positive (right side)
-
-    // Eye Z: yaw asymmetry
+    const eyeYmm        = -65 + pitchOffset;
+    const eyeRX = headLateralMm - halfIod;
+    const eyeLX = headLateralMm + halfIod;
     const yawBias = m[8] * 15;
-    const eyeRZ   = Math.max(300, Math.min(750, tzMm - yawBias));
-    const eyeLZ   = Math.max(300, Math.min(750, tzMm + yawBias));
-
-    // ── Gaze vectors: head rotation + iris blend ──────────────────────────
-    // Camera space → SMI convention: flip Y (down→up) and Z (in→forward)
-    const gvRx_raw = m[8]; const gvRy_raw = m[9]; const gvRz_raw = -m[10]; // Y: +m[9] = Y-down convention matches SMI
+    const eyeRZ   = Math.max(250, Math.min(750, tzMm - yawBias));
+    const eyeLZ   = Math.max(250, Math.min(750, tzMm + yawBias));
+    const gvRx_raw = m[8]; const gvRy_raw = m[9]; const gvRz_raw = -m[10];
     const gvMag = Math.sqrt(gvRx_raw**2 + gvRy_raw**2 + gvRz_raw**2) || 1;
     const gvRxN = gvRx_raw/gvMag, gvRyN = gvRy_raw/gvMag, gvRzN = gvRz_raw/gvMag;
-
-    // Iris offset: feat[6]=avgIrisX (left-of-centre=positive), feat[4]=irisY
-    // feat[4] positive = iris below face centre = child looking DOWN
-    // In SMI convention: looking down = gaze Y positive → ADD feat[4]
     const irisContribX =  feat[6] * 1.8;
-    const irisContribY =  feat[4] * 1.5;  // positive sign: fixes Y mean from -0.20 to +0.23
+    const irisContribY =  feat[4] * 1.5;
     const blendX = gvRxN + irisContribX;
     const blendY = gvRyN + irisContribY;
     const blendMag = Math.sqrt(blendX**2 + blendY**2 + gvRzN**2) || 1;
     const finalGvRx = blendX / blendMag;
     const finalGvRy = blendY / blendMag;
     const finalGvRz = gvRzN  / blendMag;
-
-    // Per-eye vergence: left eye tilts inward
     const vergenceAngle = halfIod / Math.max(300, tzMm);
-    const finalGvLx = finalGvRx - vergenceAngle * 0.6; // scaled to match REF L-R diff ~0.041
-
-    // ── Pupil diameter + size ──────────────────────────────────────────────
+    const finalGvLx = finalGvRx - vergenceAngle * 0.6;
     const pupR = Math.max(1.5, Math.min(3.8, 2.9  + (0.30 - feat[7]) * 3.5));
     const pupL = Math.max(1.5, Math.min(3.8, 2.85 + (0.30 - feat[7]) * 3.5));
     const PX_PER_MM  = 4.14;
     const pupSizePxR = pupR * PX_PER_MM;
     const pupSizePxL = pupL * PX_PER_MM;
-
-    // ── Binocular disparity: empirical iodMm*1.12 ─────────────────────────
-    const vergenceDisp = Math.round(iodMm * 1.12);   // ~48px at IOD=43mm
-
+    const vergenceDisp = Math.round(iodMm * 1.12);
     feat._3d = {
       eyeRX, eyeRY: eyeYmm, eyeRZ,
       eyeLX, eyeLY: eyeYmm - 4, eyeLZ,
@@ -796,17 +784,10 @@ function extractFeatures(lm, mat) {
 }
 
 // ─── RIDGE REGRESSION ────────────────────────────────────────────────────────
-// Split polynomial basis — separate feature sets for X and Y
-// X: iris horizontal offsets (strong signal for lateral gaze)
-// Y: pitch, forehead height, irisY amplified (vertical gaze)
 function polyX(f) {
-  // f[0]=leftIrisOffset f[1]=rightIrisOffset f[6]=mean horizontal
-  // f[0]-f[1] = asymmetry (left vs right looking)
   return [1, f[0], f[1], f[6], f[0]*f[1], f[0]-f[1], f[0]+f[1]];
 }
 function polyY(f) {
-  // f[2]=pitch*3 amplified, f[3]=foreheadY, f[4]=irisY*2 amplified
-  // f[5]=absolute iris Y, pitch² for nonlinearity
   return [1, f[2]*3, f[3], f[4]*2, f[2]*f[3], (f[2]*3)*(f[2]*3), f[5]];
 }
 function ridgeFit(X,y,alpha=RIDGE_ALPHA){
@@ -830,21 +811,15 @@ function trainModel(samples){
   const W=window.innerWidth, H=window.innerHeight;
   const Xx=samples.map(s=>polyX(s.feat));
   const Xy=samples.map(s=>polyY(s.feat));
-  // Normalise targets to [0,1] before ridge fit.
-  // RIDGE_ALPHA=0.01 is calibrated for unit-scale outputs. Raw pixel targets
-  // (0–1280px) cause the regulariser to suppress weights needed to fit large
-  // values, collapsing the Y model. Normalising fixes this.
   const wx=ridgeFit(Xx, samples.map(s=>s.sx/W));
   const wy=ridgeFit(Xy, samples.map(s=>s.sy/H));
-  // Log diagnostics
   const pitchStd = (() => { const vals=samples.map(s=>s.feat[2]); const m=vals.reduce((a,b)=>a+b,0)/vals.length; return Math.sqrt(vals.reduce((a,b)=>a+(b-m)**2,0)/vals.length); })();
-  if(pitchStd<0.01) console.warn('[GazeTrack] ⚠️ pitch std very low — Y model may be poor (child not moving head to top/bottom creatures)');
+  if(pitchStd<0.01) console.warn('[GazeTrack] ⚠️ pitch std very low — Y model may be poor');
   return{wx,wy};
 }
 function predictGaze(feat,model){
   if(!model) return null;
   const W=window.innerWidth, H=window.innerHeight;
-  // Model predicts normalised [0,1] → scale back to pixels
   const gx=polyX(feat).reduce((s,v,i)=>s+v*model.wx[i],0)*W;
   const gy=polyY(feat).reduce((s,v,i)=>s+v*model.wy[i],0)*H;
   const cx=affineBias.sx*gx+affineBias.dx;
@@ -865,31 +840,16 @@ function computeAffineCorrection(pairs){
 }
 
 // ─── PRE-CALIBRATION GAZE ESTIMATE ───────────────────────────────────────────
-// Only used for visual feedback (creature glow). Bar fills on pure timer.
-// [CLEAN-3] _calibTargetY initialised to H/2 at each advanceCalibPoint call.
 function estimateGazeFromIris(feat){
   const W=window.innerWidth, H=window.innerHeight;
   const rawX=(-feat[6]*4870)+(W*0.54);
-  // Use creature's own Y so horizontal detection is what matters
   const rawY=_calibTargetY>=0?_calibTargetY:H*0.5;
   return{x:Math.max(0,Math.min(W,rawX)),y:rawY};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  STAR KEEPER CALIBRATION
-//  Child-friendly design principles used:
-//   • Named magical creature characters (Starby, Bubbles…) with hand-drawn bodies
-//   • Each appears with a rising jingle — sound + motion together attract attention
-//   • PURE TIMER advancement — no gaze gate. Child just needs to look at the screen.
-//     Research (Wass et al., Tobii infant protocol): auto-advance is more reliable
-//     than gaze-gating for ASD/TD children because you can't use gaze to calibrate gaze.
-//   • Glow ring still tracks approximate gaze for visual feedback only
-//   • Success burst (particles + confetti + jingle) rewards each completion
-//   • Story banner keeps clinician and parent informed without distracting child
-//   • Fatigue break overlay triggers automatically if blink EAR drops
-//   • Skip button appears after first fail — doesn't interrupt current attempt
 // ═══════════════════════════════════════════════════════════════════════════════
-
 const CREATURE_DEFS=[
   {name:'Starby',   color:'#ffd700',glow:'#ffe066',bodyFn:'star',  hunger:'star seeds'},
   {name:'Bubbles',  color:'#4fc3f7',glow:'#80deea',bodyFn:'blob',  hunger:'sparkle drops'},
@@ -912,7 +872,6 @@ function buildCalibPoints(){
   ];
 }
 function getCalibGazeRadius(pt){
-  // Only used for glow feedback — not for gating
   if(!pt.isCorner) return Math.min(window.innerWidth,window.innerHeight)*0.42;
   return 220;
 }
@@ -1083,27 +1042,25 @@ function drawCalibStars(t){
 
 // ─── CALIBRATION MAIN ────────────────────────────────────────────────────────
 function startCalib(){
-  calibPoints   =buildCalibPoints();
-  calibSamples  =[];
-  calibIdx      =0;
+  calibPoints    =buildCalibPoints();
+  calibSamples   =[];
+  calibIdx       =0;
   doneCalibPoints=new Set();
   calibParticles =[];
   calibFloaties  =[];
-  creatureEls    =[];  // always clean array
+  creatureEls    =[];
   calibState     ='idle';
   calibFacePresent=false;
   _calibCurrentGaze=null; _calibLastGaze=null; _calibLastGazeTs=0; _calibLastFeat=null;
   _calibHoldStart=null;   _calibHoldLostAt=null;
   _calibSampling=false;   _calibSparkled=false; _calibLoopT=0;
-  _calibDwellAccum=0;     _calibLastFrameTs=0;  _calibProcTs=-1;  // [CLEAN-1,2]
-  _calibTargetY=window.innerHeight/2;                              // [CLEAN-3]
-
-  _earCalibSamples=[];    _earThreshold=0.22;   // reset adaptive EAR per attempt
-  affineBias={dx:0,dy:0,sx:1,sy:1};             // reset bias — no inherited bad correction
-
+  _calibDwellAccum=0;     _calibLastFrameTs=0;  _calibProcTs=-1;
+  _calibTargetY=window.innerHeight/2;
+  _earCalibSamples=[];    _earThreshold=0.22;
+  affineBias={dx:0,dy:0,sx:1,sy:1};
   initCalibScene();
   updateCalibHUD();
-  resizeCanvases();  // [CLEAN-9] guarantee canvas size before first draw
+  resizeCanvases();
   document.getElementById('calib-overlay')?.setAttribute('style','display:none');
   setCalibBanner('🌟 Welcome, Star Keeper! Help the magical creatures eat — just look at them!');
   setTimeout(()=>advanceCalibPoint(), 1200);
@@ -1115,14 +1072,12 @@ function advanceCalibPoint(){
   clearTimeout(_calibSkipTimer);
   _calibHoldStart=null; _calibHoldLostAt=null;
   _calibSampling=false; _calibPointSamples=[]; _calibSparkled=false;
-  _calibDwellAccum=0;   _calibLastFrameTs=0;   // [CLEAN-4]
-  _calibTargetY=calibPoints[calibIdx]?.y ?? window.innerHeight/2;  // [CLEAN-3] update per point
+  _calibDwellAccum=0;   _calibLastFrameTs=0;
+  _calibTargetY=calibPoints[calibIdx]?.y ?? window.innerHeight/2;
   calibState='gap';
   updateCalibHUD();
-
   const skipBtn=document.getElementById('calib-skip-btn');
   if(skipBtn) skipBtn.style.display=calibFailCount>=1?'inline-block':'none';
-
   const myIdx=calibIdx;
   setTimeout(()=>{
     if(calibIdx!==myIdx) return;
@@ -1306,10 +1261,10 @@ function startValidation(){
   const W=window.innerWidth,H=window.innerHeight;
   const safeVX=Math.max(80,W*.16),safeVY=Math.max(80,H*.16);
   valPoints=[
-    {x:W/2,   y:H/2},        // centre
-    {x:safeVX,y:safeVY},     // top-left
-    {x:W-safeVX,y:H-safeVY}, // bottom-right
-    {x:W/2, y:H-safeVY},     // bottom-centre (extra vertical coverage)
+    {x:W/2,   y:H/2},
+    {x:safeVX,y:safeVY},
+    {x:W-safeVX,y:H-safeVY},
+    {x:W/2, y:H-safeVY},
   ];
   valIdx=0;valSamples=[];VAL_PARTICLES.length=0;
   _lastVideoTime=-1;_valLastDetectTs=-1;
@@ -1333,15 +1288,13 @@ function runStarDot(){
   if(valIdx>=valPoints.length){finishValidation();return;}
   const pt=valPoints[valIdx];
   const valCanvas=document.getElementById('val-canvas');if(!valCanvas) return;
-  // [CLEAN-9,10] set size and scale once per point, use setTransform not scale
   const dpr=window.devicePixelRatio||1;
   valCanvas.width =Math.round(window.innerWidth *dpr);
   valCanvas.height=Math.round(window.innerHeight*dpr);
   valCanvas.style.width =window.innerWidth +'px';
   valCanvas.style.height=window.innerHeight+'px';
   const vCtx=valCanvas.getContext('2d');
-  vCtx.setTransform(dpr,0,0,dpr,0,0);  // setTransform = no stacking
-
+  vCtx.setTransform(dpr,0,0,dpr,0,0);
   const numEl=document.getElementById('val-badge-num');if(numEl) numEl.textContent=valIdx+1;
   const notes=[523,659,784];
   playChime(notes[valIdx%notes.length],0.12,0.5);
@@ -1373,7 +1326,6 @@ function runStarDot(){
             const mat=(res.facialTransformationMatrixes?.length>0)?res.facialTransformationMatrixes[0]:null;
             const feat=extractFeatures(lm,mat);
             if(feat[7]>=0.20){
-              // Must use polyX/polyY + denormalise — matches trainModel exactly
               const _W=window.innerWidth,_H=window.innerHeight;
               collected.push({
                 px:polyX(feat).reduce((s,v,i)=>s+v*gazeModel.wx[i],0)*_W,
@@ -1409,7 +1361,7 @@ function finishValidation(){
     const dxBad=Math.abs(affineBias.dx)>500;
     const sxBad=affineBias.sx>2.4||affineBias.sx<0.3;
     if(dxBad||sxBad){
-      console.warn(`[Val] Catastrophic calib (dx=${affineBias.dx.toFixed(0)} sx=${affineBias.sx.toFixed(2)}) — retrying`);
+      console.warn(`[Val] Catastrophic calib — retrying`);
       affineBias={dx:0,dy:0,sx:1,sy:1};
       calibSamples=[];gazeModel=null;
       const card=document.getElementById('calib-card');
@@ -1436,8 +1388,6 @@ function classifyGaze(gaze,currentTime){
   if(!prevGaze||!prevGazeTime){prevGaze=gaze;prevGazeTime=currentTime;return'Fixation';}
   const dt=currentTime-prevGazeTime;if(dt===0)return'Fixation';
   const vel=Math.hypot(gaze.x-prevGaze.x,gaze.y-prevGaze.y)/dt;
-  // SMI RED reference has ~2.7% unclassified rows (borderline velocity)
-  // vel 0.85-1.5 px/ms → '-' (unclassified), matches SMI behaviour
   const cat = vel>1.5 ? 'Saccade' : (vel>0.85 ? '-' : 'Fixation');
   prevGaze=gaze;prevGazeTime=currentTime;return cat;
 }
@@ -1445,36 +1395,114 @@ function classifyGaze(gaze,currentTime){
 // ─── RECORDING ───────────────────────────────────────────────────────────────
 function startRecording(){
   sessionStart=Date.now();recordedFrames=[];totalF=0;trackedF=0;
-  _lastKnownPupilDiamR=3.5;_lastKnownPupilDiamL=3.5;  // reset pupil hold each session
-  prevGaze=null;prevGazeTime=null;  // reset saccade state
-  // Cache video dimensions once — avoids expensive getSettings() on every frame
-  try{const t=sessionStream?.getVideoTracks()[0]?.getSettings();if(t){_cachedVideoW=t.width||640;_cachedVideoH=t.height||480;}}catch(e){}
+  _lastKnownPupilDiamR=3.5;_lastKnownPupilDiamL=3.5;
+  prevGaze=null;prevGazeTime=null;
+  // Multi-trial state reset
+  playlistTrialIdx=0;
+  trialStartMs=0;
+  _photoTimer=null;
+  try{const t=sessionStream?.getVideoTracks()[0]?.getSettings();if(t){_cachedVideoW=t.width||webcam.videoWidth||640;_cachedVideoH=t.height||webcam.videoHeight||480;}}catch(e){}
   timerInt=setInterval(()=>{
     const s=Math.floor((Date.now()-sessionStart)/1000);
     const timerEl=document.getElementById('h-timer');
     if(timerEl) timerEl.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   },500);
-  if(videoBlob){
-    stimVideo.src=videoBlob;stimVideo.muted=true;
-    stimVideo.play().catch(()=>showNoVideo());
-    stimVideo.onerror=showNoVideo;
-    stimVideo.onended=()=>endSession();
-    document.getElementById('sound-btn')?.setAttribute('style','display:block');
-  }else{showNoVideo();}
+  updateTrialBadge();
+  if(playlist.length>0){
+    loadTrialItem(0);
+  }else{
+    showNoVideo();
+  }
 }
+
+// ─── TRIAL MANAGEMENT ────────────────────────────────────────────────────────
+function loadTrialItem(idx){
+  if(idx>=playlist.length){endSession();return;}
+  playlistTrialIdx=idx;
+  trialStartMs=Date.now()-sessionStart;
+  const item=playlist[idx];
+  // Hide both media elements
+  stimVideo.style.display='none';
+  stimVideo.pause();
+  stimVideo.src='';
+  if(stimImage) stimImage.style.display='none';
+  clearTimeout(_photoTimer);
+  // Inject separator row at trial boundary
+  injectSeparatorRow(idx, item.name);
+  updateTrialBadge();
+  document.getElementById('no-video')?.setAttribute('style','display:none');
+  if(item.type==='video'){
+    stimVideo.style.display='block';
+    stimVideo.src=item.objectURL;
+    stimVideo.muted=true;
+    stimVideo.currentTime=0;
+    stimVideo.play().catch(()=>{});
+    stimVideo.onended=()=>advanceTrial();
+    document.getElementById('sound-btn')?.setAttribute('style','display:block');
+  }else{
+    // Image stimulus
+    if(stimImage){stimImage.src=item.objectURL;stimImage.style.display='block';}
+    document.getElementById('sound-btn')?.setAttribute('style','display:none');
+    _photoTimer=setTimeout(()=>advanceTrial(), photoDurSec*1000);
+  }
+  const nextBtn=document.getElementById('next-trial-btn');
+  if(nextBtn) nextBtn.style.display=playlist.length>1?'block':'none';
+}
+
+function advanceTrial(){
+  clearTimeout(_photoTimer);
+  if(playlistTrialIdx+1<playlist.length){
+    loadTrialItem(playlistTrialIdx+1);
+  }else{
+    endSession();
+  }
+}
+
+function updateTrialBadge(){
+  const badge  =document.getElementById('trial-badge');
+  const cur    =document.getElementById('trial-badge-cur');
+  const tot    =document.getElementById('trial-badge-tot');
+  const name   =document.getElementById('trial-badge-name');
+  const chip   =document.getElementById('h-trial-chip');
+  const hTrial =document.getElementById('h-trial');
+  const n=playlist.length;
+  if(badge)  badge.style.display =n>1?'block':'none';
+  if(chip)   chip.style.display  =n>1?'flex':'none';
+  if(cur)    cur.textContent     =playlistTrialIdx+1;
+  if(tot)    tot.textContent     =n;
+  if(name)   name.textContent    =playlist[playlistTrialIdx]?.name||'—';
+  if(hTrial) hTrial.textContent  =`${playlistTrialIdx+1}/${n}`;
+}
+
+document.getElementById('next-trial-btn')?.addEventListener('click',()=>{
+  stimVideo.pause();
+  advanceTrial();
+});
+
+function injectSeparatorRow(trialIdx, stimName){
+  recordedFrames.push({
+    _separator:true,
+    trialIdx,
+    stimName,
+    t:Date.now()-sessionStart,
+    trialStartMs:Date.now()-sessionStart,
+  });
+}
+
 function showNoVideo(){
   document.getElementById('no-video')?.setAttribute('style','display:flex');
   document.getElementById('sound-btn')?.setAttribute('style','display:none');
 }
+
+// Single-file fallback (no-video screen)
 document.getElementById('stim-file-input')?.addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
+  const type=f.type.startsWith('image/')?'image':'video';
+  playlist=[{objectURL:URL.createObjectURL(f),name:f.name,type}];
   META.stimulus=f.name;
-  stimVideo.src=URL.createObjectURL(f);stimVideo.muted=true;
-  document.getElementById('no-video')?.setAttribute('style','display:none');
-  stimVideo.play().catch(()=>{});
-  stimVideo.onended=()=>endSession();
-  document.getElementById('sound-btn')?.setAttribute('style','display:block');
+  loadTrialItem(0);
 });
+
 document.getElementById('sound-btn')?.addEventListener('click',()=>{
   stimVideo.muted=false;stimVideo.play().catch(()=>{});
   document.getElementById('sound-btn')?.setAttribute('style','display:none');
@@ -1484,7 +1512,6 @@ document.getElementById('sound-btn')?.addEventListener('click',()=>{
 function processingLoop(){
   if(phase==='done') return;
 
-  // ── CALIB-RUN: 30Hz throttle, separate timestamp ──────────────────────────
   if(phase==='calib-run'){
     if(webcam?.readyState>=2&&faceLandmarker){
       const now=performance.now();
@@ -1500,14 +1527,12 @@ function processingLoop(){
           const feat=extractFeatures(lm,mat);
           _calibLastFeat=feat;
           const ear=feat[7];
-          // Adaptive EAR: collect first 60 open-eye frames → set threshold at p60*0.60
-          // Adapts to each child's natural eye opening (ASD children often have atypical EAR)
-          if(_earCalibSamples.length<60 && ear>0.15){
+          if(_earCalibSamples.length<60&&ear>0.15){
             _earCalibSamples.push(ear);
             if(_earCalibSamples.length===60){
               const sorted=[..._earCalibSamples].sort((a,b)=>a-b);
               _earThreshold=Math.max(0.12,Math.min(0.26,sorted[36]*0.60));
-              console.log('[GazeTrack] Adaptive EAR threshold set to',_earThreshold.toFixed(3));
+              console.log('[GazeTrack] Adaptive EAR threshold:',_earThreshold.toFixed(3));
             }
           }
           const isBlink=ear<_earThreshold;
@@ -1533,10 +1558,9 @@ function processingLoop(){
 
   if(phase==='validation'){procRaf=requestAnimationFrame(processingLoop);return;}
 
-  // ── STIMULUS: 60Hz time-based throttle, separate _stimLastTs [CLEAN-6] ──
   if(webcam?.readyState>=2&&faceLandmarker){
     const now=performance.now();
-    if(now-_stimLastTs<33){procRaf=requestAnimationFrame(processingLoop);return;} // 30fps: matches webcam max
+    if(now-_stimLastTs<33){procRaf=requestAnimationFrame(processingLoop);return;}
     _stimLastTs=now;
 
     const res=faceLandmarker.detectForVideo(webcam,mpNow());
@@ -1555,9 +1579,8 @@ function processingLoop(){
       const lm=res.faceLandmarks[0];
       const feat=extractFeatures(lm,mat);
       const ear=feat[7];
-      const isBlink=ear<_earThreshold;  // adaptive per-child threshold set during calib
+      const isBlink=ear<_earThreshold;
       const nowMs=Date.now()-sessionStart;
-
 
       let leftPupilX=null,leftPupilY=null,rightPupilX=null,rightPupilY=null;
       try{
@@ -1575,25 +1598,20 @@ function processingLoop(){
         let gaze=null;
         if(!isBlink&&gazeModel&&!calibSkipActive) gaze=predictGaze(feat,gazeModel);
 
-        const dispX=feat._3d?feat._3d.vergenceDisp:48;  // REF mean=48px
-        const dispY=dispX*0.41;                           // REF Y/X ratio ≈ 20/48
+        const dispX=feat._3d?feat._3d.vergenceDisp:48;
+        const dispY=dispX*0.41;
         const gazeXL=gaze?gaze.x+dispX:NaN;
         const gazeYL=gaze?gaze.y+dispY:NaN;
 
-        // Pupil size — use pre-computed values from 3D enrichment
-        // REF: Pupil Size px mean=12.15, Diameter mm mean=2.98
-        // Pupil diameter: preserve last known value during blinks (SMI behaviour)
-        // SMI outputs last known diameter even during blinks — only size goes to 0
-        const _rawPupilDiamR = feat._3d?.pupilDiamR ?? Math.max(1.5,Math.min(3.8,2.9+(feat[7]-0.30)*3.5));
-        const _rawPupilDiamL = feat._3d?.pupilDiamL ?? Math.max(1.5,Math.min(3.8,2.85+(feat[7]-0.30)*3.5));
-        if(!isBlink && _rawPupilDiamR>0) _lastKnownPupilDiamR=_rawPupilDiamR;
-        if(!isBlink && _rawPupilDiamL>0) _lastKnownPupilDiamL=_rawPupilDiamL;
-        const pupilDiamR = _lastKnownPupilDiamR;   // always last known (held during blinks)
-        const pupilDiamL = _lastKnownPupilDiamL;
-        const pupilSizePxR=isBlink?0:(feat._3d?.pupSizePxR ?? _rawPupilDiamR*4.14);
-        const pupilSizePxL=isBlink?0:(feat._3d?.pupSizePxL ?? _rawPupilDiamL*4.14);
+        const _rawPupilDiamR=feat._3d?.pupilDiamR??Math.max(1.5,Math.min(3.8,2.9+(feat[7]-0.30)*3.5));
+        const _rawPupilDiamL=feat._3d?.pupilDiamL??Math.max(1.5,Math.min(3.8,2.85+(feat[7]-0.30)*3.5));
+        if(!isBlink&&_rawPupilDiamR>0) _lastKnownPupilDiamR=_rawPupilDiamR;
+        if(!isBlink&&_rawPupilDiamL>0) _lastKnownPupilDiamL=_rawPupilDiamL;
+        const pupilDiamR=_lastKnownPupilDiamR;
+        const pupilDiamL=_lastKnownPupilDiamL;
+        const pupilSizePxR=isBlink?0:(feat._3d?.pupSizePxR??_rawPupilDiamR*4.14);
+        const pupilSizePxL=isBlink?0:(feat._3d?.pupSizePxL??_rawPupilDiamL*4.14);
 
-        const catGroup='Eye';
         const catRight=isBlink?'Blink':(gaze?classifyGaze(gaze,nowMs):'Fixation');
         const catLeft=catRight;
 
@@ -1603,22 +1621,25 @@ function processingLoop(){
           leftPupilX,leftPupilY,rightPupilX,rightPupilY,
           pupilSizePxR,pupilSizePxL,
           pupilDiamR,pupilDiamL,
-          // Eye positions from corrected 3D model
           eyeRX:isBlink?0:(feat._3d?.eyeRX??null),
           eyeRY:isBlink?0:(feat._3d?.eyeRY??null),
           eyeRZ:isBlink?0:(feat._3d?.eyeRZ??null),
           eyeLX:isBlink?0:(feat._3d?.eyeLX??null),
           eyeLY:isBlink?0:(feat._3d?.eyeLY??null),
           eyeLZ:isBlink?0:(feat._3d?.eyeLZ??null),
-          // Per-eye gaze vectors (REF has different L/R vectors due to vergence)
           gazeVRX:isBlink?0:(feat._3d?.gazeVRX??feat[0]),
           gazeVRY:isBlink?0:(feat._3d?.gazeVRY??feat[1]),
           gazeVRZ:isBlink?0:(feat._3d?.gazeVRZ??feat[2]),
           gazeVLX:isBlink?0:(feat._3d?.gazeVLX??feat[0]),
           gazeVLY:isBlink?0:(feat._3d?.gazeVLY??feat[1]),
           gazeVLZ:isBlink?0:(feat._3d?.gazeVLZ??feat[2]),
-          catGroup,catRight,catLeft,category:catRight,feat,
+          catGroup:'Eye',catRight,catLeft,category:catRight,feat,
+          // Trial tagging
+          trialIdx:     playlistTrialIdx,
+          stimName:     playlist[playlistTrialIdx]?.name||META.stimulus||'-',
+          trialStartMs: trialStartMs,
         };
+
         if(gaze){
           trackedF++;
           gazeCtx?.clearRect(0,0,gazeCanvas.width,gazeCanvas.height);
@@ -1629,14 +1650,16 @@ function processingLoop(){
           const sg=document.getElementById('st-gaze');if(sg){sg.textContent=isBlink?'Blink':'Lost';sg.className='sv bad';}
         }
         recordedFrames.push(frameData);
-        const sf=document.getElementById('st-frames');if(sf)sf.textContent=recordedFrames.length;
-        const st=document.getElementById('st-track');if(st)st.textContent=Math.round(trackedF/totalF*100)+'%';
+        const sf=document.getElementById('st-frames');if(sf)sf.textContent=recordedFrames.filter(f=>!f._separator).length;
+        const st=document.getElementById('st-track');if(st&&totalF>0)st.textContent=Math.round(trackedF/totalF*100)+'%';
         if(recordedFrames.length>10){
-          const ys=recordedFrames.filter(f=>f.tracked).map(f=>f.gazeY);
+          const ys=recordedFrames.filter(f=>!f._separator&&f.tracked).map(f=>f.gazeY);
           if(ys.length>1){const my=ys.reduce((a,b)=>a+b,0)/ys.length;const sy=Math.sqrt(ys.reduce((a,b)=>a+(b-my)**2,0)/ys.length);const el=document.getElementById('st-ystd');if(el){el.textContent=sy.toFixed(0)+'px';el.className='sv '+(sy>30?'ok':'bad');}}
         }
       }
     }else if(phase==='stimulus'){
+      // No face — reset saccade state to avoid gap-crossing velocity spike
+      prevGaze=null;prevGazeTime=null;
       totalF++;
       const nowMs=Date.now()-sessionStart;
       recordedFrames.push({
@@ -1647,7 +1670,10 @@ function processingLoop(){
         eyeRX:null,eyeRY:null,eyeRZ:null,eyeLX:null,eyeLY:null,eyeLZ:null,
         gazeVRX:null,gazeVRY:null,gazeVRZ:null,
         gazeVLX:null,gazeVLY:null,gazeVLZ:null,
-        catGroup:'Eye',catRight:'Blink',catLeft:'Blink',category:'Blink',feat:null
+        catGroup:'Eye',catRight:'Blink',catLeft:'Blink',category:'Blink',feat:null,
+        trialIdx:playlistTrialIdx,
+        stimName:playlist[playlistTrialIdx]?.name||META.stimulus||'-',
+        trialStartMs:trialStartMs,
       });
       const st=document.getElementById('st-track');if(st&&totalF>0)st.textContent=Math.round(trackedF/totalF*100)+'%';
     }
@@ -1655,7 +1681,7 @@ function processingLoop(){
   procRaf=requestAnimationFrame(processingLoop);
 }
 
-// ─── CSV (FULL SMI RED FORMAT) ────────────────────────────────────────────────
+// ─── CSV ─────────────────────────────────────────────────────────────────────
 const CSV_HDR=[
   'Unnamed: 0','RecordingTime [ms]','Time of Day [h:m:s:ms]',
   'Trial','Stimulus','Export Start Trial Time [ms]','Export End Trial Time [ms]',
@@ -1678,7 +1704,7 @@ const CSV_HDR=[
   'Scroll Direction X','Scroll Direction Y','Content',
   'AOI Group Right','AOI Scope Right','AOI Order Right',
   'AOI Group Left','AOI Scope Left','AOI Order Binocular'
-].join(','); // 57 columns — matches SMI RED exactly
+].join(',');
 
 function buildCSV(){
   const biasMeta=[
@@ -1688,120 +1714,123 @@ function buildCSV(){
     `val_samples=${valSamples.length}`,`calib_samples=${calibSamples.length}`,
     `skip_mode=${calibSkipActive}`,
     `viewport=${window.innerWidth}x${window.innerHeight}`,
-    `fullscreen=${!!document.fullscreenElement}`
+    `fullscreen=${!!document.fullscreenElement}`,
+    `trials=${playlist.length}`,
   ].join(' | ');
-  const lines=[biasMeta,CSV_HDR];
-  const totalDuration=recordedFrames.length>0?recordedFrames[recordedFrames.length-1].t:0;
-  const trackingRatio=totalF>0?(trackedF/totalF*100):0;
-  const colorMap={ASD:'DarkViolet',TD:'SteelBlue',other:'Gray'};
-  const color=colorMap[META.group]||'Gray';
 
-  // fn() mirrors SMI behaviour exactly:
-  //   tracked frame  → 4dp number
-  //   blink frame    → '0'  (SMI outputs literal 0 for all numeric fields on blink)
-  //   no-face frame  → '-'
+  const lines=[biasMeta,CSV_HDR];
+  const eyeFrames      = recordedFrames.filter(f=>!f._separator);
+  const totalDuration  = eyeFrames.length>0 ? eyeFrames.at(-1).t : 0;
+  const trackingRatio  = totalF>0?(trackedF/totalF*100):0;
+  const colorMap       = {ASD:'DarkViolet',TD:'SteelBlue',other:'Gray'};
+  const color          = colorMap[META.group]||'Gray';
+  const trialLabel     = idx=>`Trial${String(idx+1).padStart(3,'0')}`;
+
+  // Pre-compute per-trial export windows
+  const trialWindows={};
+  recordedFrames.forEach(f=>{
+    if(f._separator){
+      if(!trialWindows[f.trialIdx]) trialWindows[f.trialIdx]={start:f.t,end:f.t};
+    }else{
+      const ti=f.trialIdx??0;
+      if(!trialWindows[ti]) trialWindows[ti]={start:f.trialStartMs??0,end:f.t};
+      else trialWindows[ti].end=f.t;
+    }
+  });
+
   const fn=(val,d=4,isBlink=false)=>{
     if(isBlink) return '0';
-    return (val!==null&&val!==undefined&&!isNaN(val))?Number(val).toFixed(d):'-';
+    return(val!==null&&val!==undefined&&!isNaN(val))?Number(val).toFixed(d):'-';
   };
 
-  // Information/Separator row at start of trial (matches SMI format exactly)
-  // REF: Category Group='Information', Category R/L='Separator', Content=stimulus hash
-  // Only basic fields populated, all gaze/pupil fields are '-'
-  const infoRow=[
-    0, recordedFrames[0]?.t.toFixed(3)||'0',
-    recordedFrames[0]?(() => {
-      const d=new Date(sessionStart+(recordedFrames[0].t||0));
-      const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,'0');
-      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
-    })():'00:00:00:000',
-    'Trial001',META.stimulus||'-',0,totalDuration.toFixed(3),
-    META.pid,color,trackingRatio.toFixed(3),
-    'Information','Separator','Separator','1','1',
-    '-','-','-','-','-','-',   // pupil size
-    '-','-','-','-',           // gaze coords
-    '-','-',                   // AOI names
-    '-','-','-','-','-','-',   // gaze vectors
-    '-','-','-','-','-','-',   // eye positions
-    '-','-','-','-',           // pupil positions
-    '0','-','-','-','-','-','-','-', // port, annotations, mouse, scroll
-    META.stimulus||'-',        // Content — stimulus filename (matches SMI)
-    '-','-','-','-','-','-',META.group
-  ];
-  lines.push(infoRow.map(v=>v===undefined?'-':v).join(','));
+  let rowNum=0;
 
-  recordedFrames.forEach((f,i)=>{
-    const absTime=sessionStart+f.t;
-    const d=new Date(absTime);
-    const pad=(n,w=2)=>String(Math.floor(n)).padStart(w,'0');
-    const tod=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
+  recordedFrames.forEach(f=>{
+    const ti       = f.trialIdx??0;
+    const tLabel   = trialLabel(ti);
+    const stimName = f.stimName||'-';
+    const tw       = trialWindows[ti]||{start:0,end:totalDuration};
+    const expStart = tw.start.toFixed(3);
+    const expEnd   = tw.end.toFixed(3);
+    const absTime  = sessionStart+f.t;
+    const d        = new Date(absTime);
+    const pad      = (n,w=2)=>String(Math.floor(n)).padStart(w,'0');
+    const tod      = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${pad(d.getMilliseconds(),3)}`;
+
+    if(f._separator){
+      const sepRow=[
+        rowNum,f.t.toFixed(3),tod,tLabel,stimName,
+        expStart,expEnd,
+        META.pid,color,trackingRatio.toFixed(3),
+        'Information','Separator','Separator','1','1',
+        '-','-','-','-','-','-',
+        '-','-','-','-',
+        '-','-',
+        '-','-','-','-','-','-',
+        '-','-','-','-','-','-',
+        '-','-','-','-',
+        '0','-','-','-','-','-','-','-',
+        stimName,
+        '-','-','-','-','-','-',
+      ];
+      lines.push(sepRow.map(v=>v===undefined?'-':v).join(','));
+      rowNum++;return;
+    }
+
     const isBlink=f.category==='Blink';
-    const noFace=!f.feat&&!isBlink;
-
-    // Gaze coordinates
-    // Blink → '0' (SMI), no-face → '-', tracked → value
-    const gxR = isBlink?'0.0000':fn(f.gazeX,4);
-    const gyR = isBlink?'0.0000':fn(f.gazeY,4);
-    const gxL = isBlink?'0.0000':fn(f.gazeXL,4);
-    const gyL = isBlink?'0.0000':fn(f.gazeYL,4);
-
-    // Pupil size & diameter
-    const psRx = isBlink?'0.0000':fn(f.pupilSizePxR,4);
-    const psLx = isBlink?'0.0000':fn(f.pupilSizePxL,4);
-    const pdR  = isBlink?'0':fn(f.pupilDiamR,4);
-    const pdL  = isBlink?'0':fn(f.pupilDiamL,4);
-
-    // Per-eye gaze vectors (R and L differ due to vergence — matches REF)
+    const gxR=isBlink?'0.0000':fn(f.gazeX,4);
+    const gyR=isBlink?'0.0000':fn(f.gazeY,4);
+    const gxL=isBlink?'0.0000':fn(f.gazeXL,4);
+    const gyL=isBlink?'0.0000':fn(f.gazeYL,4);
+    const psRx=isBlink?'0.0000':fn(f.pupilSizePxR,4);
+    const psLx=isBlink?'0.0000':fn(f.pupilSizePxL,4);
+    const pdR =isBlink?'0':fn(f.pupilDiamR,4);
+    const pdL =isBlink?'0':fn(f.pupilDiamL,4);
     const gvRx=isBlink?'0.0000':fn(f.gazeVRX,4);
     const gvRy=isBlink?'0':fn(f.gazeVRY,4);
     const gvRz=isBlink?'0':fn(f.gazeVRZ,4);
     const gvLx=isBlink?'0':fn(f.gazeVLX,4);
     const gvLy=isBlink?'0':fn(f.gazeVLY,4);
     const gvLz=isBlink?'0':fn(f.gazeVLZ,4);
-
-    // Eye positions in mm
     const epRx=isBlink?'0':fn(f.eyeRX,4);
     const epRy=isBlink?'0':fn(f.eyeRY,4);
     const epRz=isBlink?'0':fn(f.eyeRZ,4);
     const epLx=isBlink?'0':fn(f.eyeLX,4);
     const epLy=isBlink?'0':fn(f.eyeLY,4);
     const epLz=isBlink?'0':fn(f.eyeLZ,4);
-
-    // Pupil position (camera pixels — MediaPipe iris coords)
     const ppRx=isBlink?'0':fn(f.rightPupilX,1);
     const ppRy=isBlink?'0':fn(f.rightPupilY,1);
     const ppLx=isBlink?'0':fn(f.leftPupilX,1);
     const ppLy=isBlink?'0':fn(f.leftPupilY,1);
-
     const catG=f.catGroup||'Eye';
     const catR=f.catRight||f.category||'-';
     const catL=f.catLeft||catR;
 
     const row=[
-      i+1, f.t.toFixed(3), tod, 'Trial001', META.stimulus||'-', 0, totalDuration.toFixed(3),
-      META.pid, color, trackingRatio.toFixed(3),
-      catG, catR, catL, i+1, i+1,
-      psRx, psRx, pdR,   // Pupil Size R X, Y (same), Diam R
-      psLx, psLx, pdL,   // Pupil Size L X, Y (same), Diam L
-      gxR, gyR,          // Point of Regard Right
-      gxL, gyL,          // Point of Regard Left
-      '-', '-',          // AOI Names
-      gvRx, gvRy, gvRz,  // Gaze Vector Right (per-eye)
-      gvLx, gvLy, gvLz,  // Gaze Vector Left  (per-eye, vergence offset)
-      epRx, epRy, epRz,  // Eye Position Right mm
-      epLx, epLy, epLz,  // Eye Position Left  mm
-      ppRx, ppRy,        // Pupil Position Right (camera px)
-      ppLx, ppLy,        // Pupil Position Left  (camera px)
-      '-','-','-',       // Annotations
-      '-','-','-','-',   // Mouse/scroll
-      '-',               // Content
-      '-','-','-',       // AOI Group/Scope/Order Right
-      '-','-','-'        // AOI Group/Scope/Order Left / Binocular
+      rowNum,f.t.toFixed(3),tod,
+      tLabel,stimName,expStart,expEnd,
+      META.pid,color,trackingRatio.toFixed(3),
+      catG,catR,catL,rowNum,rowNum,
+      psRx,psRx,pdR,
+      psLx,psLx,pdL,
+      gxR,gyR,gxL,gyL,
+      '-','-',
+      gvRx,gvRy,gvRz,
+      gvLx,gvLy,gvLz,
+      epRx,epRy,epRz,
+      epLx,epLy,epLz,
+      ppRx,ppRy,ppLx,ppLy,
+      '-','-','-',
+      '-','-','-','-',
+      '-',
+      '-','-','-','-','-','-',
     ];
     lines.push(row.map(v=>v===undefined?'-':v).join(','));
+    rowNum++;
   });
   return lines.join('\n');
 }
+
 function downloadCSV(){
   if(!csvData) return;
   const ts=new Date().toISOString().replace(/[:.]/g,'-');
@@ -1816,32 +1845,36 @@ function endSession(){
   if(phase==='done') return;
   phase='done';
   clearInterval(timerInt);
+  clearTimeout(_photoTimer);
   cancelAnimationFrame(procRaf);cancelAnimationFrame(calibRaf);cancelAnimationFrame(valRaf);
   stimVideo?.pause();
   csvData=buildCSV();
+  const eyeFrames = recordedFrames.filter(f=>!f._separator);
   const pct=totalF>0?Math.round(trackedF/totalF*100):0;
   const dur=Math.round((Date.now()-sessionStart)/1000);
-  const ys=recordedFrames.filter(f=>f.tracked).map(f=>f.gazeY);
+  const ys=eyeFrames.filter(f=>f.tracked).map(f=>f.gazeY);
   let ystd=0;
   if(ys.length>1){const my=ys.reduce((a,b)=>a+b,0)/ys.length;ystd=Math.sqrt(ys.reduce((a,b)=>a+(b-my)**2,0)/ys.length);}
   const biasOk=Math.abs(affineBias.dx)>5||Math.abs(affineBias.dy)>5;
   const biasLabel=biasOk?`${affineBias.dx>0?'+':''}${affineBias.dx.toFixed(0)},${affineBias.dy>0?'+':''}${affineBias.dy.toFixed(0)}px`:'Minimal';
-  const fixCount=recordedFrames.filter(f=>f.category==='Fixation').length;
-  const sacCount=recordedFrames.filter(f=>f.category==='Saccade').length;
+  const fixCount=eyeFrames.filter(f=>f.category==='Fixation').length;
+  const sacCount=eyeFrames.filter(f=>f.category==='Saccade').length;
+  const blinkCount=eyeFrames.filter(f=>f.category==='Blink').length;
+  const blinkRate=dur>0?(blinkCount/dur)*60:0;
+  const blinkRateOk=blinkRate>=5&&blinkRate<=30;
   const statsEl=document.getElementById('done-stats');
   if(statsEl){
     statsEl.innerHTML=`
-      <div class="done-stat"><div class="n">${recordedFrames.length}</div><div class="l">FRAMES</div></div>
+      <div class="done-stat"><div class="n">${eyeFrames.length}</div><div class="l">FRAMES</div></div>
       <div class="done-stat"><div class="n">${pct}%</div><div class="l">TRACKED</div></div>
       <div class="done-stat"><div class="n">${dur}s</div><div class="l">DURATION</div></div>
       <div class="done-stat"><div class="n" style="color:${ystd>30?'var(--accent)':'var(--warn)'}">${ystd.toFixed(0)}px</div><div class="l">Y STD</div></div>
       <div class="done-stat"><div class="n" style="color:var(--accent)">${fixCount}</div><div class="l">FIXATIONS</div></div>
       <div class="done-stat"><div class="n" style="color:var(--gold)">${sacCount}</div><div class="l">SACCADES</div></div>
-      <div class="done-stat"><div class="n" style="color:var(--accent);font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
-<div class="l">BLINKS</div></div>
-<div class="l">DROWSINESS</div></div>
-<div class="l">HEAD MOVES</div></div>
-<div class="l">FACE OFF</div></div>`;
+      <div class="done-stat"><div class="n" style="color:${biasOk?'var(--accent)':'var(--text-muted)'}; font-size:13px">${biasLabel}</div><div class="l">BIAS CORR</div></div>
+      <div class="done-stat"><div class="n">${blinkCount}</div><div class="l">BLINKS</div></div>
+      <div class="done-stat"><div class="n" style="color:${blinkRateOk?'var(--accent)':'var(--warn)'}">${blinkRate.toFixed(1)}/min</div><div class="l">BLINK RATE</div></div>
+      <div class="done-stat"><div class="n">${playlist.length}</div><div class="l">TRIALS</div></div>`;
   }
   showScreen('done');
   const ts2=new Date().toISOString().replace(/[:.]/g,'-');
@@ -1870,22 +1903,25 @@ async function uploadToMongo(csvText,filename){
     if(!resp.ok)throw new Error('Server '+resp.status);
     driveSetStatus('✅','Saved to database!','rgba(0,229,176,0.4)');
     const btn=document.getElementById('btn-dl');
-    if(btn){btn.textContent='✅ Saved - click to download locally';btn.style.opacity='1';btn.style.pointerEvents='auto';btn.onclick=()=>downloadCSV();}
+    if(btn){btn.textContent='✅ Saved — click to download locally';btn.style.opacity='1';btn.style.pointerEvents='auto';btn.onclick=()=>downloadCSV();}
   }catch(err){
-    driveSetStatus('❌','Database save failed - downloading locally','rgba(255,92,58,0.4)');
+    driveSetStatus('❌','Database save failed — downloading locally','rgba(255,92,58,0.4)');
     downloadCSV();
   }
 }
 
 // ─── DEBUG & CLEANUP ─────────────────────────────────────────────────────────
 window.addEventListener('keydown',e=>{
-  if(e.key==='d'||e.key==='D'){const p=document.getElementById('debug-panel');if(p)p.style.display=p.style.display==='none'?'block':'none';}
+  if(e.key==='d'||e.key==='D'){
+    const p=document.getElementById('debug-panel');
+    if(p) p.style.display=p.style.display==='none'?'block':'none';
+  }
 });
 window.addEventListener('beforeunload',()=>{
   sessionStream?.getTracks().forEach(t=>t.stop());
   camStream?.getTracks().forEach(t=>t.stop());
+  playlist.forEach(p=>URL.revokeObjectURL(p.objectURL));
 });
 window.addEventListener('resize',()=>{
-  // Never rebuild calibPoints mid-run — it jumps targets and corrupts dwell
   if(phase==='calib-ready') calibPoints=buildCalibPoints();
 });
